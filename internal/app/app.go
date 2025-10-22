@@ -20,7 +20,6 @@ type ScreenType int
 
 const (
 	ProjectScreen ScreenType = iota
-	FileManagerScreen
 	EditorScreen
 	BuildScreen
 	FixModeScreen
@@ -41,11 +40,9 @@ type App struct {
 	commands      *CommandRegistry
 
 	// Глобальное состояние
-	projectPath     string
-	fileManagerPath string
-	lastOpenedFile  string
-	unsavedFiles    map[string]bool
-	lastError       error
+	projectPath  string
+	unsavedFiles map[string]bool
+	lastError    error
 
 	// Surge CLI
 	surgeClient    *core.Client
@@ -73,7 +70,6 @@ func New(cfg *config.Config, projectPath string) *App {
 			app.projectPath = wd
 		}
 	}
-	app.fileManagerPath = app.projectPath
 
 	// Инициализируем клиента surge с путём из конфига
 	app.surgeClient = core.NewClient(cfg.SurgeBinary)
@@ -140,31 +136,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.rebuildCommandBindings()
 		}
 		return a, nil
-	case screens.OpenDirectoryMsg:
-		if msg.Path != "" {
-			a.fileManagerPath = msg.Path
-		}
-		var cmds []tea.Cmd
-		if screen, ok := a.screens[FileManagerScreen].(*screens.FileManagerScreen); ok {
-			if setCmd := screen.SetRoot(a.fileManagerPath); setCmd != nil {
-				cmds = append(cmds, setCmd)
-			}
-			// ensure map updated in case pointer changed
-			a.screens[FileManagerScreen] = screen
-		}
-		cmds = append(cmds, a.router.SwitchTo(FileManagerScreen))
-		return a, tea.Batch(cmds...)
 	case screens.OpenFileMsg:
-		if msg.FilePath != "" {
-			a.lastOpenedFile = msg.FilePath
-		}
 		return a, a.router.SwitchTo(EditorScreen)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err
 		} else {
 			var cmds []tea.Cmd
-			a.fileManagerPath = a.projectPath
 			newScreen := a.createScreen(ProjectScreen)
 			// передаем последнюю известную геометрию
 			if a.theme.Width() > 0 && a.theme.Height() > 0 {
@@ -233,8 +211,6 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	switch screenType {
 	case ProjectScreen:
 		return screens.NewProjectScreenReal(a.projectPath)
-	case FileManagerScreen:
-		return screens.NewFileManagerScreen(a.fileManagerPath)
 	case EditorScreen:
 		return screens.NewPlaceholderScreen("Editor")
 	case BuildScreen:
@@ -297,16 +273,11 @@ func (a *App) registerBaseCommands() {
 		return a.surgeAvailable && !a.isSurgeProject() && a.projectPath != ""
 	})
 	reg("goto_project", "Go to Project", kb["goto_project"], func(a *App) tea.Cmd { return a.router.SwitchTo(ProjectScreen) }, nil)
-	reg("goto_files", "Go to File Manager", kb["goto_files"], func(a *App) tea.Cmd { return a.router.SwitchTo(FileManagerScreen) }, nil)
 	reg("goto_editor", "Go to Editor", kb["goto_editor"], func(a *App) tea.Cmd { return a.router.SwitchTo(EditorScreen) }, nil)
 	reg("goto_build", "Go to Build", kb["goto_build"], func(a *App) tea.Cmd { return a.router.SwitchTo(BuildScreen) }, nil)
 
 	if cmd := a.commands.Get("goto_project"); cmd != nil {
 		s := ProjectScreen
-		cmd.Screen = &s
-	}
-	if cmd := a.commands.Get("goto_files"); cmd != nil {
-		s := FileManagerScreen
 		cmd.Screen = &s
 	}
 	if cmd := a.commands.Get("goto_editor"); cmd != nil {
@@ -354,8 +325,6 @@ func (a *App) screenTitle(screen ScreenType) string {
 	switch screen {
 	case ProjectScreen:
 		return "Project"
-	case FileManagerScreen:
-		return "Files"
 	case EditorScreen:
 		return "Editor"
 	case BuildScreen:
@@ -383,7 +352,6 @@ func (a *App) screenShortcutsSummary() string {
 	}
 	items := []pair{
 		{"Proj", kb["goto_project"]},
-		{"Files", kb["goto_files"]},
 		{"Edit", kb["goto_editor"]},
 		{"Build", kb["goto_build"]},
 	}
