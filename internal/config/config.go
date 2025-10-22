@@ -56,7 +56,7 @@ type LoggingConfig struct {
 
 // DefaultConfig возвращает конфигурацию по умолчанию
 func DefaultConfig() *Config {
-	return &Config{
+    return &Config{
 		Theme:          "dark",
 		SurgeBinary:    "surge", // Ищем в PATH
 		DefaultProject: "",
@@ -70,20 +70,21 @@ func DefaultConfig() *Config {
 			SyntaxHighlight: true,
 		},
 
-		Keybindings: map[string]string{
-			"quit":             "ctrl+q",
-			"command_palette":  "ctrl+p",
-			"help":             "f1",
-			"settings":         "ctrl+comma",
-			"save":             "ctrl+s",
-			"build":            "ctrl+b",
-			"search":           "ctrl+f",
-			"undo":             "ctrl+z",
-			"redo":             "ctrl+y",
-			"external_editor":  "ctrl+e",
-			"switch_screen":    "tab",
-			"switch_screen_back": "shift+tab",
-		},
+        Keybindings: map[string]string{
+            "quit":             "ctrl+q",
+            "command_palette":  "ctrl+p",
+            "help":             "f1",
+            "settings":         "ctrl+comma",
+            "save":             "ctrl+s",
+            "build":            "ctrl+b",
+            "search":           "ctrl+f",
+            "undo":             "ctrl+z",
+            "redo":             "ctrl+y",
+            "external_editor":  "ctrl+e",
+            "switch_screen":    "tab",
+            "switch_screen_back": "shift+tab",
+            "init_project":     "ctrl+i",
+        },
 
 		Performance: PerformanceConfig{
 			MaxFileSize:   10 * 1024 * 1024, // 10 MB
@@ -102,7 +103,7 @@ func DefaultConfig() *Config {
 
 // Load загружает конфигурацию из файла
 func Load() (*Config, error) {
-	cfg := DefaultConfig()
+    cfg := DefaultConfig()
 
 	// Определяем путь к конфигурационному файлу
 	configPath, err := getConfigPath()
@@ -124,17 +125,20 @@ func Load() (*Config, error) {
 		return cfg, err
 	}
 
-	// Парсим YAML
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return cfg, err
-	}
+    // Парсим YAML
+    if err := yaml.Unmarshal(data, cfg); err != nil {
+        return cfg, err
+    }
 
-	// Устанавливаем пути по умолчанию если они не заданы
-	if cfg.Logging.FilePath == "" {
-		cfg.Logging.FilePath = getDefaultLogPath()
-	}
+    // Устанавливаем пути по умолчанию если они не заданы
+    if cfg.Logging.FilePath == "" {
+        cfg.Logging.FilePath = getDefaultLogPath()
+    }
 
-	return cfg, nil
+    // Валидация значений и нормализация дефолтов
+    _ = cfg.Validate()
+
+    return cfg, nil
 }
 
 // Save сохраняет конфигурацию в файл

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -45,9 +46,59 @@ func (c *Client) GetVersion(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// Diagnose запускает `surge diag --format=json` по пути к файлу или директории.
+// Для директории CLI возвращает JSON-объект вида map[string]DiagnosticsOutput.
+// Для файла — объект DiagnosticsOutput.
+func (c *Client) Diagnose(ctx context.Context, targetPath string, withNotes, withFixes bool) (*DiagResponse, error) {
+    if targetPath == "" {
+        targetPath = "."
+    }
+
+    args := []string{"diag", "--format", "json"}
+    if withNotes {
+        args = append(args, "--with-notes")
+    }
+    if withFixes {
+        args = append(args, "--suggest")
+    }
+    args = append(args, targetPath)
+
+    cmd := exec.CommandContext(ctx, c.binaryPath, args...)
+    out, err := cmd.CombinedOutput()
+
+    resp := &DiagResponse{Raw: out, ExitCode: 0}
+    if err != nil {
+        var ee *exec.ExitError
+        if errors.As(err, &ee) {
+            resp.ExitCode = ee.ExitCode()
+        } else {
+            resp.Err = err
+            return resp, err
+        }
+    }
+
+    // Попытка распарсить как пакет результатов (директория)
+    var batch map[string]DiagnosticsOutput
+    if json.Unmarshal(out, &batch) == nil && len(batch) > 0 {
+        resp.Batch = batch
+        return resp, nil
+    }
+
+    // Падение на map — не обязательно ошибка: возможно одиночный файл
+    var single DiagnosticsOutput
+    if uerr := json.Unmarshal(out, &single); uerr != nil {
+        resp.Err = uerr
+        return resp, uerr
+    }
+    resp.Single = &single
+    return resp, nil
+}
+
 // BuildProject запускает сборку проекта
 func (c *Client) BuildProject(ctx context.Context, projectPath string) (*BuildResult, error) {
-	cmd := exec.CommandContext(ctx, c.binaryPath, "build", "--format=json", projectPath)
+    // Note: current surge build is a stub and doesn't support --format=json yet.
+    // We invoke without format flag and attempt to parse JSON lines if present.
+    cmd := exec.CommandContext(ctx, c.binaryPath, "build", projectPath)
 
 	result := &BuildResult{
 		ProjectPath: projectPath,
@@ -98,6 +149,12 @@ func (c *Client) BuildProject(ctx context.Context, projectPath string) (*BuildRe
 	}
 
 	return result, nil
+}
+
+// InitProject initializes a surge project at the given path.
+func (c *Client) InitProject(ctx context.Context, projectPath string) error {
+    cmd := exec.CommandContext(ctx, c.binaryPath, "init", projectPath)
+    return cmd.Run()
 }
 
 // GetFixes получает список автофиксов для проекта
@@ -194,5 +251,67 @@ func (d *Diagnostic) IsError() bool {
 
 // IsWarning проверяет, является ли диагностика предупреждением
 func (d *Diagnostic) IsWarning() bool {
-	return d.Level == "warning"
+    return d.Level == "warning"
+}
+
+// ===== JSON контракты для surge diag --format=json =====
+
+// LocationJSON описывает местоположение в файле
+type LocationJSON struct {
+    File      string `json:"file"`
+    StartByte uint32 `json:"start_byte"`
+    EndByte   uint32 `json:"end_byte"`
+    StartLine uint32 `json:"start_line,omitempty"`
+    StartCol  uint32 `json:"start_col,omitempty"`
+    EndLine   uint32 `json:"end_line,omitempty"`
+    EndCol    uint32 `json:"end_col,omitempty"`
+}
+
+// NoteJSON — дополнительная заметка
+type NoteJSON struct {
+    Message  string       `json:"message"`
+    Location LocationJSON `json:"location"`
+}
+
+// FixEditJSON — одно редактирование
+type FixEditJSON struct {
+    Location LocationJSON `json:"location"`
+    NewText  string       `json:"new_text"`
+    OldText  string       `json:"old_text,omitempty"`
+}
+
+// FixJSON — описание автофикса
+type FixJSON struct {
+    ID            string        `json:"id,omitempty"`
+    Title         string        `json:"title"`
+    Kind          string        `json:"kind"`
+    Applicability string        `json:"applicability"`
+    IsPreferred   bool          `json:"is_preferred,omitempty"`
+    BuildError    string        `json:"build_error,omitempty"`
+    Edits         []FixEditJSON `json:"edits,omitempty"`
+}
+
+// DiagnosticJSON — диагностика (JSON)
+type DiagnosticJSON struct {
+    Severity string       `json:"severity"`
+    Code     string       `json:"code"`
+    Message  string       `json:"message"`
+    Location LocationJSON `json:"location"`
+    Notes    []NoteJSON   `json:"notes,omitempty"`
+    Fixes    []FixJSON    `json:"fixes,omitempty"`
+}
+
+// DiagnosticsOutput — корень JSON для одного файла
+type DiagnosticsOutput struct {
+    Diagnostics []DiagnosticJSON `json:"diagnostics"`
+    Count       int              `json:"count"`
+}
+
+// DiagResponse — объединённый ответ от diag
+type DiagResponse struct {
+    Single   *DiagnosticsOutput
+    Batch    map[string]DiagnosticsOutput
+    ExitCode int
+    Raw      []byte
+    Err      error
 }

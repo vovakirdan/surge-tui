@@ -1,12 +1,17 @@
 package app
 
 import (
-	"fmt"
+    "context"
+    "fmt"
+    "os"
+    "path/filepath"
+    "time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"surge-tui/internal/config"
-	"surge-tui/internal/ui/screens"
-	"surge-tui/internal/ui/styles"
+    tea "github.com/charmbracelet/bubbletea"
+    "surge-tui/internal/config"
+    core "surge-tui/internal/core/surge"
+    "surge-tui/internal/ui/screens"
+    "surge-tui/internal/ui/styles"
 )
 
 // ScreenType определяет тип экрана
@@ -26,32 +31,49 @@ const (
 
 // App представляет главное приложение
 type App struct {
-	config        *config.Config
-	currentScreen ScreenType
-	screens       map[ScreenType]screens.Screen
-	router        *ScreenRouter
-	eventBus      *EventBus
-	theme         *styles.Theme
+    config        *config.Config
+    currentScreen ScreenType
+    screens       map[ScreenType]screens.Screen
+    router        *ScreenRouter
+    eventBus      *EventBus
+    theme         *styles.Theme
 
-	// Глобальное состояние
-	projectPath   string
-	unsavedFiles  map[string]bool
-	lastError     error
+    // Глобальное состояние
+    projectPath   string
+    unsavedFiles  map[string]bool
+    lastError     error
+
+    // Surge CLI
+    surgeClient    *core.Client
+    surgeAvailable bool
+    surgeVersion   string
 }
 
 // New создает новое приложение
 func New(cfg *config.Config, projectPath string) *App {
-	app := &App{
-		config:       cfg,
-		projectPath:  projectPath,
-		screens:      make(map[ScreenType]screens.Screen),
-		eventBus:     NewEventBus(),
-		theme:        styles.NewTheme(cfg.Theme),
-		unsavedFiles: make(map[string]bool),
-	}
+    app := &App{
+        config:       cfg,
+        projectPath:  projectPath,
+        screens:      make(map[ScreenType]screens.Screen),
+        eventBus:     NewEventBus(),
+        theme:        styles.NewTheme(cfg.Theme),
+        unsavedFiles: make(map[string]bool),
+    }
 
-	// Инициализируем роутер
-	app.router = NewScreenRouter(app)
+    // Путь к проекту: CLI → конфиг → текущая директория
+    if app.projectPath == "" {
+        if cfg.DefaultProject != "" {
+            app.projectPath = cfg.DefaultProject
+        } else if wd, err := os.Getwd(); err == nil {
+            app.projectPath = wd
+        }
+    }
+
+    // Инициализируем клиента surge с путём из конфига
+    app.surgeClient = core.NewClient(cfg.SurgeBinary)
+
+    // Инициализируем роутер
+    app.router = NewScreenRouter(app)
 
 	// Создаем экраны (ленивая инициализация)
 	app.initScreens()
@@ -61,40 +83,55 @@ func New(cfg *config.Config, projectPath string) *App {
 
 // Init инициализирует приложение (Bubble Tea)
 func (a *App) Init() tea.Cmd {
-	// Создаем первый экран
-	a.currentScreen = ProjectScreen
-	a.screens[ProjectScreen] = a.createScreen(ProjectScreen)
+    // Создаем первый экран
+    a.currentScreen = ProjectScreen
+    a.screens[ProjectScreen] = a.createScreen(ProjectScreen)
 
-	// Инициализируем экран
-	if screen := a.getCurrentScreen(); screen != nil {
-		return screen.Init()
-	}
+    // Инициализируем экран
+    if screen := a.getCurrentScreen(); screen != nil {
+        return tea.Batch(screen.Init(), a.checkSurgeAvailability())
+    }
 
-	return nil
+    return nil
 }
 
 // Update обрабатывает сообщения (Bubble Tea)
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		return a.handleGlobalKeys(msg)
-	case tea.WindowSizeMsg:
-		return a.handleWindowResize(msg)
-	case ScreenSwitchMsg:
-		return a.handleScreenSwitch(msg)
-	case ErrorMsg:
-		return a.handleError(msg)
-	}
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        return a.handleGlobalKeys(msg)
+    case tea.WindowSizeMsg:
+        return a.handleWindowResize(msg)
+    case ScreenSwitchMsg:
+        return a.handleScreenSwitch(msg)
+    case ErrorMsg:
+        return a.handleError(msg)
+    case SurgeAvailabilityMsg:
+        a.surgeAvailable = msg.Available
+        a.surgeVersion = msg.Version
+        if msg.Err != nil {
+            a.lastError = msg.Err
+        }
+        return a, nil
+    case ProjectInitializedMsg:
+        if msg.Err != nil {
+            a.lastError = msg.Err
+        } else {
+            // Переинициализируем экран проекта чтобы перечитать дерево
+            a.screens[ProjectScreen] = a.createScreen(ProjectScreen)
+        }
+        return a, nil
+    }
 
-	// Передаем сообщение текущему экрану
-	currentScreen := a.getCurrentScreen()
-	if currentScreen != nil {
-		updatedScreen, cmd := currentScreen.Update(msg)
-		a.screens[a.currentScreen] = updatedScreen
-		return a, cmd
-	}
+    // Передаем сообщение текущему экрану
+    currentScreen := a.getCurrentScreen()
+    if currentScreen != nil {
+        updatedScreen, cmd := currentScreen.Update(msg)
+        a.screens[a.currentScreen] = updatedScreen
+        return a, cmd
+    }
 
-	return a, nil
+    return a, nil
 }
 
 // View отрисовывает приложение (Bubble Tea)
@@ -125,18 +162,20 @@ func (a *App) initScreens() {
 
 // handleGlobalKeys обрабатывает глобальные горячие клавиши
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "ctrl+q":
-		return a.handleQuit()
-	case "ctrl+p":
-		return a, a.router.SwitchTo(CommandPaletteScreen)
-	case "f1":
-		return a, a.router.SwitchTo(HelpScreen)
-	case "ctrl+comma":
-		return a, a.router.SwitchTo(SettingsScreen)
-	case "tab":
-		return a, a.router.SwitchToNext()
-	}
+    switch msg.String() {
+    case "ctrl+c", "ctrl+q":
+        return a.handleQuit()
+    case "ctrl+p":
+        return a, a.router.SwitchTo(CommandPaletteScreen)
+    case "f1":
+        return a, a.router.SwitchTo(HelpScreen)
+    case "ctrl+comma":
+        return a, a.router.SwitchTo(SettingsScreen)
+    case "tab":
+        return a, a.router.SwitchToNext()
+    case "ctrl+i":
+        return a, a.initProject()
+    }
 
 	// Если глобальные клавиши не обработаны, передаем экрану
 	currentScreen := a.getCurrentScreen()
@@ -222,9 +261,9 @@ func (a *App) handleQuit() (tea.Model, tea.Cmd) {
 
 // createScreen создает экран по типу
 func (a *App) createScreen(screenType ScreenType) screens.Screen {
-	switch screenType {
-	case ProjectScreen:
-		return screens.NewProjectScreenReal(a.projectPath)
+    switch screenType {
+    case ProjectScreen:
+        return screens.NewProjectScreenReal(a.projectPath)
 	case FileManagerScreen:
 		return screens.NewPlaceholderScreen("File Manager")
 	case EditorScreen:
@@ -248,8 +287,19 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 
 // renderStatusBar отрисовывает статус-бар
 func (a *App) renderStatusBar() string {
-	// TODO: реализовать статус-бар с информацией о проекте, горячих клавишах и т.д.
-	return a.theme.StatusBar("Ready | Ctrl+Q: Quit | Ctrl+P: Commands | F1: Help")
+    proj := a.projectLabel()
+    surge := "Surge: unknown"
+    if a.surgeAvailable {
+        if a.surgeVersion != "" {
+            surge = "Surge: " + a.surgeVersion
+        } else {
+            surge = "Surge: available"
+        }
+    } else {
+        surge = "Surge: not found"
+    }
+    help := "Ctrl+Q Quit • Ctrl+P Commands • F1 Help"
+    return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
 }
 
 // Сообщения для приложения
@@ -261,5 +311,66 @@ type ScreenSwitchMsg struct {
 
 // ErrorMsg сообщение об ошибке
 type ErrorMsg struct {
-	Error error
+    Error error
+}
+
+// Вспомогательные сообщения
+type SurgeAvailabilityMsg struct {
+    Available bool
+    Version   string
+    Err       error
+}
+
+type ProjectInitializedMsg struct {
+    Path string
+    Err  error
+}
+
+// checkSurgeAvailability проверяет наличие surge и версию
+func (a *App) checkSurgeAvailability() tea.Cmd {
+    return func() tea.Msg {
+        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+        defer cancel()
+        if a.surgeClient == nil {
+            return SurgeAvailabilityMsg{Available: false}
+        }
+        err := a.surgeClient.CheckAvailable(ctx)
+        if err != nil {
+            return SurgeAvailabilityMsg{Available: false, Err: err}
+        }
+        ver, _ := a.surgeClient.GetVersion(ctx)
+        return SurgeAvailabilityMsg{Available: true, Version: ver}
+    }
+}
+
+// initProject вызывает `surge init` для текущего пути проекта
+func (a *App) initProject() tea.Cmd {
+    if a.surgeClient == nil || !a.surgeAvailable || a.projectPath == "" || a.isSurgeProject() {
+        return nil
+    }
+    return func() tea.Msg {
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+        err := a.surgeClient.InitProject(ctx, a.projectPath)
+        return ProjectInitializedMsg{Path: a.projectPath, Err: err}
+    }
+}
+
+// projectLabel формирует подпись проекта для статус-бара
+func (a *App) projectLabel() string {
+    if a.projectPath == "" {
+        return "Project: (none)"
+    }
+    return "Project: " + filepath.Base(a.projectPath)
+}
+
+// isSurgeProject проверяет наличие surge.toml в корне
+func (a *App) isSurgeProject() bool {
+    if a.projectPath == "" {
+        return false
+    }
+    if st, err := os.Stat(filepath.Join(a.projectPath, "surge.toml")); err == nil && !st.IsDir() {
+        return true
+    }
+    return false
 }
