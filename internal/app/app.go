@@ -40,9 +40,10 @@ type App struct {
 }
 
 // New создает новое приложение
-func New(cfg *config.Config) *App {
+func New(cfg *config.Config, projectPath string) *App {
 	app := &App{
 		config:       cfg,
+		projectPath:  projectPath,
 		screens:      make(map[ScreenType]screens.Screen),
 		eventBus:     NewEventBus(),
 		theme:        styles.NewTheme(cfg.Theme),
@@ -223,7 +224,7 @@ func (a *App) handleQuit() (tea.Model, tea.Cmd) {
 func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	switch screenType {
 	case ProjectScreen:
-		return screens.NewPlaceholderScreen("Project")
+		return screens.NewProjectScreenReal(a.projectPath)
 	case FileManagerScreen:
 		return screens.NewPlaceholderScreen("File Manager")
 	case EditorScreen:

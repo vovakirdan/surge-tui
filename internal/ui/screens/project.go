@@ -2,27 +2,32 @@ package screens
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"surge-tui/internal/fs"
 )
 
-// ProjectScreen экран обзора проекта
-type ProjectScreen struct {
-	BaseScreen
+const (
+	// UI layout constants
+	TreePanelRatio   = 3.0 / 5.0 // 60% для дерева файлов
+	StatusPanelRatio = 2.0 / 5.0 // 40% для статуса
 
-	// Состояние экрана
-	projectPath   string
-	fileTree      *FileTree
-	selectedFile  string
-	buildStatus   BuildStatus
-	lastBuildTime string
+	// Display constants
+	MaxDisplayLines = 6 // Резерв строк для заголовков и рамок
+	ScrollOffset    = 2 // Отступ при прокрутке
 
-	// UI компоненты
-	focusedPanel PanelType
-}
+	// Colors
+	ActiveBorderColor   = "#7C3AED"
+	InactiveBorderColor = "#334155"
+	LoadingColor        = "#7C3AED"
+	ErrorColor          = "#EF4444"
+	DimTextColor        = "#94A3B8"
+)
 
 // PanelType тип панели на экране
 type PanelType int
@@ -32,123 +37,163 @@ const (
 	StatusPanel
 )
 
-// BuildStatus статус последней сборки
-type BuildStatus struct {
-	InProgress   bool
-	Success      bool
+// OpenFileMsg сообщение об открытии файла
+type OpenFileMsg struct {
+	FilePath string
+}
+
+// ProjectScreenReal настоящий экран проекта с деревом файлов
+type ProjectScreenReal struct {
+	BaseScreen
+
+	// Состояние
+	projectPath string
+	fileTree    *fs.FileTree
+	loading     bool
+	err         error
+
+	// UI состояние
+	focusedPanel PanelType
+	statusInfo   ProjectStatus
+
+	// Размеры панелей
+	treeWidth   int
+	statusWidth int
+}
+
+// ProjectStatus информация о статусе проекта
+type ProjectStatus struct {
+	LastBuild    time.Time
+	BuildSuccess bool
 	ErrorCount   int
 	WarningCount int
-	Duration     string
+	FileCount    int
+	DirCount     int
 }
 
-// FileTree дерево файлов проекта
-type FileTree struct {
-	Root      *FileNode
-	Selected  int
-	Expanded  map[string]bool
-	Files     []string // Плоский список для навигации
-}
-
-// FileNode узел дерева файлов
-type FileNode struct {
-	Name     string
-	Path     string
-	IsDir    bool
-	Children []*FileNode
-	Parent   *FileNode
-	Level    int
-}
-
-// NewProjectScreen создает новый экран проекта
-func NewProjectScreen(projectPath string) *ProjectScreen {
-	screen := &ProjectScreen{
-		BaseScreen:   NewBaseScreen("Project Explorer"),
-		projectPath:  projectPath,
-		focusedPanel: FileTreePanel,
-		fileTree: &FileTree{
-			Expanded: make(map[string]bool),
-		},
+// NewProjectScreenReal создает новый экран проекта
+func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
+	if projectPath == "" {
+		// Используем текущую директорию если не указана
+		pwd, _ := os.Getwd()
+		projectPath = pwd
 	}
 
-	screen.loadFileTree()
-	return screen
+	return &ProjectScreenReal{
+		BaseScreen:   NewBaseScreen("Project"),
+		projectPath:  projectPath,
+		focusedPanel: FileTreePanel,
+		loading:      true,
+	}
 }
 
-// Init инициализирует экран (Bubble Tea)
-func (ps *ProjectScreen) Init() tea.Cmd {
-	return nil
+// Init инициализирует экран
+func (ps *ProjectScreenReal) Init() tea.Cmd {
+	return ps.loadFileTree()
 }
 
-// Update обрабатывает сообщения (Bubble Tea)
-func (ps *ProjectScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
+// Update обрабатывает сообщения
+func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return ps.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
-		ps.SetSize(msg.Width, msg.Height-1) // -1 для статус-бара
+		ps.handleResize(msg)
 		return ps, nil
-	case FileTreeUpdateMsg:
-		ps.updateFileTree(msg)
+	case fileTreeLoadedMsg:
+		ps.loading = false
+		ps.fileTree = msg.tree
+		ps.updateStats()
 		return ps, nil
-	case BuildStatusMsg:
-		ps.updateBuildStatus(msg)
+	case fileTreeErrorMsg:
+		ps.loading = false
+		ps.err = msg.err
 		return ps, nil
 	}
 
 	return ps, nil
 }
 
-// View отрисовывает экран (Bubble Tea)
-func (ps *ProjectScreen) View() string {
+// View отрисовывает экран
+func (ps *ProjectScreenReal) View() string {
 	if ps.Width() == 0 {
-		return "Loading project..."
+		return "Initializing..."
 	}
 
-	// Разделяем экран на две части
-	leftWidth := ps.Width() / 2
-	rightWidth := ps.Width() - leftWidth
+	if ps.loading {
+		return ps.renderLoading()
+	}
 
-	// Левая панель - дерево файлов
-	leftPanel := ps.renderFileTree(leftWidth, ps.Height())
+	if ps.err != nil {
+		return ps.renderError()
+	}
 
-	// Правая панель - статус проекта
-	rightPanel := ps.renderProjectStatus(rightWidth, ps.Height())
+	// Разделяем экран на левую и правую панели
+	leftPanel := ps.renderFileTreePanel()
+	rightPanel := ps.renderStatusPanel()
 
-	// Объединяем панели
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }
 
-// OnEnter вызывается при входе на экран
-func (ps *ProjectScreen) OnEnter() tea.Cmd {
-	// Обновляем дерево файлов
-	return ps.refreshFileTree()
-}
-
 // handleKeyPress обрабатывает нажатия клавиш
-func (ps *ProjectScreen) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
+func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
+	if ps.loading || ps.err != nil {
+		// В состоянии загрузки только разрешаем выход
+		return ps, nil
+	}
+
 	switch msg.String() {
 	case "left", "right":
 		ps.switchPanel()
 		return ps, nil
-	case "up", "k":
-		return ps, ps.navigateUp()
-	case "down", "j":
-		return ps, ps.navigateDown()
-	case "enter":
-		return ps, ps.selectItem()
-	case "space":
-		return ps, ps.toggleExpand()
-	case "ctrl+r":
-		return ps, ps.refreshFileTree()
-	case "ctrl+b":
-		return ps, ps.startBuild()
+	case "h": // Переключение показа скрытых файлов
+		if ps.fileTree != nil {
+			ps.fileTree.SetShowHidden(!ps.fileTree.ShowHidden)
+			ps.updateStats()
+		}
+		return ps, nil
+	case "s": // Фильтр по .sg файлам
+		if ps.fileTree != nil {
+			ps.fileTree.SetFilterSurge(!ps.fileTree.FilterSurge)
+			ps.updateStats()
+		}
+		return ps, nil
+	case "r", "ctrl+r": // Обновить дерево
+		return ps, ps.loadFileTree()
+	}
+
+	// Навигация в дереве файлов
+	if ps.focusedPanel == FileTreePanel && ps.fileTree != nil {
+		switch msg.String() {
+		case "up", "k":
+			ps.fileTree.SetSelected(ps.fileTree.Selected - 1)
+			return ps, nil
+		case "down", "j":
+			ps.fileTree.SetSelected(ps.fileTree.Selected + 1)
+			return ps, nil
+		case "enter":
+			return ps, ps.openSelectedFile()
+		case " ", "space":
+			ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
+			ps.updateStats()
+			return ps, nil
+		}
 	}
 
 	return ps, nil
 }
 
+// handleResize обрабатывает изменение размера
+func (ps *ProjectScreenReal) handleResize(msg tea.WindowSizeMsg) {
+	ps.SetSize(msg.Width, msg.Height-1) // -1 для статус-бара приложения
+
+	// Распределяем ширину панелей
+	ps.treeWidth = int(float64(ps.Width()) * TreePanelRatio)
+	ps.statusWidth = ps.Width() - ps.treeWidth
+}
+
 // switchPanel переключает фокус между панелями
-func (ps *ProjectScreen) switchPanel() {
+func (ps *ProjectScreenReal) switchPanel() {
 	if ps.focusedPanel == FileTreePanel {
 		ps.focusedPanel = StatusPanel
 	} else {
@@ -156,257 +201,301 @@ func (ps *ProjectScreen) switchPanel() {
 	}
 }
 
-// navigateUp перемещает курсор вверх в дереве файлов
-func (ps *ProjectScreen) navigateUp() tea.Cmd {
-	if ps.focusedPanel == FileTreePanel && ps.fileTree.Selected > 0 {
-		ps.fileTree.Selected--
-	}
-	return nil
-}
-
-// navigateDown перемещает курсор вниз в дереве файлов
-func (ps *ProjectScreen) navigateDown() tea.Cmd {
-	if ps.focusedPanel == FileTreePanel && ps.fileTree.Selected < len(ps.fileTree.Files)-1 {
-		ps.fileTree.Selected++
-	}
-	return nil
-}
-
-// selectItem выбирает текущий элемент
-func (ps *ProjectScreen) selectItem() tea.Cmd {
-	if ps.focusedPanel == FileTreePanel && len(ps.fileTree.Files) > 0 {
-		selectedPath := ps.fileTree.Files[ps.fileTree.Selected]
-		ps.selectedFile = selectedPath
-
-		// Если это файл, открываем его в редакторе
-		if !ps.isDirectory(selectedPath) {
-			return func() tea.Msg {
-				return OpenFileMsg{FilePath: selectedPath}
-			}
-		}
-	}
-	return nil
-}
-
-// toggleExpand разворачивает/сворачивает директорию
-func (ps *ProjectScreen) toggleExpand() tea.Cmd {
-	if ps.focusedPanel == FileTreePanel && len(ps.fileTree.Files) > 0 {
-		selectedPath := ps.fileTree.Files[ps.fileTree.Selected]
-		if ps.isDirectory(selectedPath) {
-			ps.fileTree.Expanded[selectedPath] = !ps.fileTree.Expanded[selectedPath]
-			ps.rebuildFileList()
-		}
-	}
-	return nil
-}
-
-// refreshFileTree обновляет дерево файлов
-func (ps *ProjectScreen) refreshFileTree() tea.Cmd {
+// loadFileTree загружает дерево файлов асинхронно
+func (ps *ProjectScreenReal) loadFileTree() tea.Cmd {
 	return func() tea.Msg {
-		// TODO: сканировать файловую систему в фоне
-		return FileTreeUpdateMsg{}
+		tree, err := fs.NewFileTree(ps.projectPath)
+		if err != nil {
+			return fileTreeErrorMsg{err: err}
+		}
+		return fileTreeLoadedMsg{tree: tree}
 	}
 }
 
-// startBuild запускает сборку проекта
-func (ps *ProjectScreen) startBuild() tea.Cmd {
-	return func() tea.Msg {
-		// TODO: запустить сборку в фоне
-		return BuildStartMsg{ProjectPath: ps.projectPath}
+// openSelectedFile открывает выбранный файл
+func (ps *ProjectScreenReal) openSelectedFile() tea.Cmd {
+	selected := ps.fileTree.GetSelected()
+	if selected == nil {
+		return nil
 	}
+
+	if selected.IsDir {
+		// Для директорий переключаем состояние разворота
+		ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
+		ps.updateStats()
+		return nil
+	}
+
+	// Для файлов отправляем сообщение об открытии
+	return func() tea.Msg {
+		return OpenFileMsg{FilePath: selected.Path}
+	}
+}
+
+// updateStats обновляет статистику проекта
+func (ps *ProjectScreenReal) updateStats() {
+	if ps.fileTree == nil {
+		return
+	}
+
+	ps.statusInfo.FileCount = 0
+	ps.statusInfo.DirCount = 0
+
+	ps.countNodes(ps.fileTree.Root)
+}
+
+// countNodes рекурсивно считает файлы и директории
+func (ps *ProjectScreenReal) countNodes(node *fs.FileNode) {
+	if node == nil {
+		return
+	}
+
+	if node.IsDir {
+		ps.statusInfo.DirCount++
+		for _, child := range node.Children {
+			ps.countNodes(child)
+		}
+	} else {
+		ps.statusInfo.FileCount++
+	}
+}
+
+// renderLoading отрисовывает экран загрузки
+func (ps *ProjectScreenReal) renderLoading() string {
+	style := lipgloss.NewStyle().
+		Width(ps.Width()).
+		Height(ps.Height()).
+		Align(lipgloss.Center, lipgloss.Center).
+		Foreground(lipgloss.Color(LoadingColor))
+
+	return style.Render("🔄 Loading project...\n\n" + ps.projectPath)
+}
+
+// renderError отрисовывает экран ошибки
+func (ps *ProjectScreenReal) renderError() string {
+	style := lipgloss.NewStyle().
+		Width(ps.Width()).
+		Height(ps.Height()).
+		Align(lipgloss.Center, lipgloss.Center).
+		Foreground(lipgloss.Color(ErrorColor))
+
+	return style.Render(fmt.Sprintf("❌ Error loading project\n\n%s\n\n%v\n\nPress 'r' to retry", ps.projectPath, ps.err))
+}
+
+// renderFileTreePanel отрисовывает панель дерева файлов
+func (ps *ProjectScreenReal) renderFileTreePanel() string {
+	// Стиль рамки
+	borderColor := InactiveBorderColor
+	if ps.focusedPanel == FileTreePanel {
+		borderColor = ActiveBorderColor
+	}
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Width(ps.treeWidth - 1).
+		Height(ps.Height() - 2).
+		Padding(0, 1)
+
+	// Заголовок панели
+	title := "📁 Files"
+	if ps.focusedPanel == FileTreePanel {
+		title += " (focused)"
+	}
+
+	// Подзаголовок с фильтрами
+	subtitle := ps.getFilterInfo()
+
+	// Содержимое
+	content := ps.renderFileTree()
+
+	return style.Render(fmt.Sprintf("%s\n%s\n\n%s", title, subtitle, content))
+}
+
+// renderStatusPanel отрисовывает панель статуса
+func (ps *ProjectScreenReal) renderStatusPanel() string {
+	// Стиль рамки
+	borderColor := InactiveBorderColor
+	if ps.focusedPanel == StatusPanel {
+		borderColor = ActiveBorderColor
+	}
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Width(ps.statusWidth - 1).
+		Height(ps.Height() - 2).
+		Padding(0, 1)
+
+	// Заголовок панели
+	title := "📊 Project Status"
+	if ps.focusedPanel == StatusPanel {
+		title += " (focused)"
+	}
+
+	// Содержимое
+	content := ps.renderProjectInfo()
+
+	return style.Render(fmt.Sprintf("%s\n\n%s", title, content))
+}
+
+// getFilterInfo возвращает информацию о текущих фильтрах
+func (ps *ProjectScreenReal) getFilterInfo() string {
+	if ps.fileTree == nil {
+		return ""
+	}
+
+	var filters []string
+	if ps.fileTree.ShowHidden {
+		filters = append(filters, "Hidden")
+	}
+	if ps.fileTree.FilterSurge {
+		filters = append(filters, ".sg only")
+	}
+
+	if len(filters) > 0 {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(DimTextColor)).
+			Render("[" + strings.Join(filters, ", ") + "]")
+	}
+
+	return ""
 }
 
 // renderFileTree отрисовывает дерево файлов
-func (ps *ProjectScreen) renderFileTree(width, height int) string {
-	title := "📁 Files"
-	if ps.focusedPanel == FileTreePanel {
-		title = "📁 Files (focused)"
-	}
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Width(width-2).
-		Height(height-2).
-		Padding(1)
-
-	if ps.focusedPanel == FileTreePanel {
-		style = style.BorderForeground(lipgloss.Color("#7C3AED"))
-	}
-
-	content := ps.buildFileTreeContent(width-4, height-4)
-
-	return style.Render(fmt.Sprintf("%s\n\n%s", title, content))
-}
-
-// renderProjectStatus отрисовывает статус проекта
-func (ps *ProjectScreen) renderProjectStatus(width, height int) string {
-	title := "📊 Project Status"
-	if ps.focusedPanel == StatusPanel {
-		title = "📊 Project Status (focused)"
-	}
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Width(width-2).
-		Height(height-2).
-		Padding(1)
-
-	if ps.focusedPanel == StatusPanel {
-		style = style.BorderForeground(lipgloss.Color("#7C3AED"))
-	}
-
-	content := ps.buildStatusContent()
-
-	return style.Render(fmt.Sprintf("%s\n\n%s", title, content))
-}
-
-// buildFileTreeContent строит содержимое дерева файлов
-func (ps *ProjectScreen) buildFileTreeContent(width, height int) string {
-	if len(ps.fileTree.Files) == 0 {
+func (ps *ProjectScreenReal) renderFileTree() string {
+	if ps.fileTree == nil || len(ps.fileTree.FlatList) == 0 {
 		return "No files found"
 	}
 
 	var lines []string
-	for i, filePath := range ps.fileTree.Files {
-		prefix := "  "
-		if i == ps.fileTree.Selected && ps.focusedPanel == FileTreePanel {
-			prefix = "▶ "
+	maxLines := ps.Height() - MaxDisplayLines // Оставляем место для заголовка и рамки
+
+	start := ps.fileTree.Selected
+	if maxLines > ScrollOffset && start > maxLines/ScrollOffset {
+		start = ps.fileTree.Selected - maxLines/ScrollOffset
+	}
+	if start < 0 {
+		start = 0
+	}
+
+	end := start + maxLines
+	if end > len(ps.fileTree.FlatList) {
+		end = len(ps.fileTree.FlatList)
+		start = end - maxLines
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	for i := start; i < end; i++ {
+		node := ps.fileTree.FlatList[i]
+		line := node.GetDisplayName()
+
+		// Обрезаем слишком длинные строки
+		maxWidth := ps.treeWidth - 6
+		if len(line) > maxWidth {
+			line = line[:maxWidth-3] + "..."
 		}
 
-		fileName := filepath.Base(filePath)
-		if ps.isDirectory(filePath) {
-			fileName = "📁 " + fileName
-		} else {
-			fileName = "📄 " + fileName
-		}
-
-		line := prefix + fileName
-		if len(line) > width {
-			line = line[:width-3] + "..."
+		// Подсвечиваем выбранную строку
+		if i == ps.fileTree.Selected {
+			if ps.focusedPanel == FileTreePanel {
+				line = lipgloss.NewStyle().
+					Background(lipgloss.Color("#7C3AED")).
+					Foreground(lipgloss.Color("#FFFFFF")).
+					Render(line)
+			} else {
+				line = lipgloss.NewStyle().
+					Background(lipgloss.Color("#334155")).
+					Render(line)
+			}
 		}
 
 		lines = append(lines, line)
-
-		if len(lines) >= height {
-			break
-		}
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// buildStatusContent строит содержимое статуса проекта
-func (ps *ProjectScreen) buildStatusContent() string {
+// renderProjectInfo отрисовывает информацию о проекте
+func (ps *ProjectScreenReal) renderProjectInfo() string {
 	var lines []string
 
-	// Информация о проекте
-	lines = append(lines, fmt.Sprintf("Path: %s", ps.projectPath))
+	// Путь к проекту
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Path:"))
+	projectPath := ps.projectPath
+	if len(projectPath) > ps.statusWidth-10 {
+		projectPath = "..." + projectPath[len(projectPath)-(ps.statusWidth-13):]
+	}
+	lines = append(lines, projectPath)
 	lines = append(lines, "")
 
-	// Статус сборки
-	lines = append(lines, "Last Build:")
-	if ps.buildStatus.InProgress {
-		lines = append(lines, "  🔄 Building...")
-	} else if ps.buildStatus.Success {
-		lines = append(lines, "  ✅ Success")
-	} else {
-		lines = append(lines, "  ❌ Failed")
-	}
-
-	if ps.buildStatus.ErrorCount > 0 {
-		lines = append(lines, fmt.Sprintf("  🔴 %d errors", ps.buildStatus.ErrorCount))
-	}
-
-	if ps.buildStatus.WarningCount > 0 {
-		lines = append(lines, fmt.Sprintf("  🟡 %d warnings", ps.buildStatus.WarningCount))
-	}
-
-	if ps.buildStatus.Duration != "" {
-		lines = append(lines, fmt.Sprintf("  ⏱️  %s", ps.buildStatus.Duration))
-	}
-
+	// Статистика файлов
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Statistics:"))
+	lines = append(lines, fmt.Sprintf("📁 Directories: %d", ps.statusInfo.DirCount))
+	lines = append(lines, fmt.Sprintf("📄 Files: %d", ps.statusInfo.FileCount))
 	lines = append(lines, "")
 
-	// Быстрые действия
-	lines = append(lines, "Quick Actions:")
-	lines = append(lines, "  Enter - Open file")
-	lines = append(lines, "  Space - Expand/collapse")
-	lines = append(lines, "  Ctrl+B - Build")
-	lines = append(lines, "  Ctrl+R - Refresh")
+	// Информация о выбранном файле
+	if selected := ps.fileTree.GetSelected(); selected != nil {
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Selected:"))
+		lines = append(lines, selected.Name)
+		if !selected.IsDir {
+			lines = append(lines, fmt.Sprintf("Size: %d bytes", selected.Size))
+		}
+		lines = append(lines, "")
+	}
+
+	// Горячие клавиши
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Controls:"))
+	lines = append(lines, "↑↓ / jk - Navigate")
+	lines = append(lines, "Enter - Open file/folder")
+	lines = append(lines, "Space - Expand/collapse")
+	lines = append(lines, "h - Toggle hidden files")
+	lines = append(lines, "s - Toggle .sg filter")
+	lines = append(lines, "r - Refresh")
+	lines = append(lines, "←→ - Switch panels")
 
 	return strings.Join(lines, "\n")
 }
 
-// Вспомогательные методы
-
-func (ps *ProjectScreen) loadFileTree() {
-	// TODO: загрузить дерево файлов из файловой системы
-}
-
-func (ps *ProjectScreen) updateFileTree(msg FileTreeUpdateMsg) {
-	// TODO: обновить дерево файлов
-}
-
-func (ps *ProjectScreen) updateBuildStatus(msg BuildStatusMsg) {
-	ps.buildStatus = BuildStatus{
-		InProgress:   msg.InProgress,
-		Success:      msg.Success,
-		ErrorCount:   msg.ErrorCount,
-		WarningCount: msg.WarningCount,
-		Duration:     msg.Duration,
+// Title возвращает заголовок экрана
+func (ps *ProjectScreenReal) Title() string {
+	if ps.projectPath != "" {
+		return "Project: " + filepath.Base(ps.projectPath)
 	}
-}
-
-func (ps *ProjectScreen) rebuildFileList() {
-	// TODO: пересобрать плоский список файлов из дерева
-}
-
-func (ps *ProjectScreen) isDirectory(path string) bool {
-	// TODO: проверить, является ли путь директорией
-	return false
+	return "Project"
 }
 
 // ShortHelp возвращает краткую справку
-func (ps *ProjectScreen) ShortHelp() string {
-	return "↑↓: Navigate • Enter: Open • Space: Expand • Ctrl+B: Build"
+func (ps *ProjectScreenReal) ShortHelp() string {
+	return "↑↓: Navigate • Enter: Open • Space: Expand • h: Hidden • s: .sg filter • r: Refresh"
 }
 
 // FullHelp возвращает полную справку
-func (ps *ProjectScreen) FullHelp() []string {
+func (ps *ProjectScreenReal) FullHelp() []string {
 	help := ps.BaseScreen.FullHelp()
 	help = append(help, []string{
 		"",
 		"Project Screen:",
 		"  ↑/↓ or j/k - Navigate files",
-		"  ←/→ - Switch panels",
-		"  Enter - Open selected file",
+		"  ←/→ - Switch between tree and status panels",
+		"  Enter - Open selected file or expand directory",
 		"  Space - Expand/collapse directory",
-		"  Ctrl+B - Build project",
-		"  Ctrl+R - Refresh file tree",
+		"  h - Toggle hidden files display",
+		"  s - Toggle .sg files only filter",
+		"  r or Ctrl+R - Refresh file tree",
 	}...)
 	return help
 }
 
-// Сообщения для экрана проекта
+// Сообщения для экрана
 
-// FileTreeUpdateMsg обновление дерева файлов
-type FileTreeUpdateMsg struct{}
-
-// BuildStatusMsg статус сборки
-type BuildStatusMsg struct {
-	InProgress   bool
-	Success      bool
-	ErrorCount   int
-	WarningCount int
-	Duration     string
+type fileTreeLoadedMsg struct {
+	tree *fs.FileTree
 }
 
-// BuildStartMsg запуск сборки
-type BuildStartMsg struct {
-	ProjectPath string
-}
-
-// OpenFileMsg открытие файла
-type OpenFileMsg struct {
-	FilePath string
+type fileTreeErrorMsg struct {
+	err error
 }

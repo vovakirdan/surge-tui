@@ -32,8 +32,14 @@ func main() {
 		cancel()
 	}()
 
+	// Определяем путь к проекту из аргументов командной строки
+	projectPath := ""
+	if len(os.Args) > 1 {
+		projectPath = os.Args[1]
+	}
+
 	// Создаем и запускаем приложение
-	application := app.New(cfg)
+	application := app.New(cfg, projectPath)
 
 	program := tea.NewProgram(
 		application,
