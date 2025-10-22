@@ -31,5 +31,8 @@ go.work.sum
 .idea/
 .vscode/
 
+# Surge project
+hello_world/
+
 AGENTS.md
 CLAUDE.md

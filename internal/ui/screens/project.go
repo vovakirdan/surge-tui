@@ -203,11 +203,14 @@ func (ps *ProjectScreenReal) switchPanel() {
 
 // loadFileTree загружает дерево файлов асинхронно
 func (ps *ProjectScreenReal) loadFileTree() tea.Cmd {
-	return func() tea.Msg {
-		tree, err := fs.NewFileTree(ps.projectPath)
-		if err != nil {
-			return fileTreeErrorMsg{err: err}
-		}
+    ps.loading = true
+    ps.err = nil
+    ps.fileTree = nil
+    return func() tea.Msg {
+        tree, err := fs.NewFileTree(ps.projectPath)
+        if err != nil {
+            return fileTreeErrorMsg{err: err}
+        }
 		return fileTreeLoadedMsg{tree: tree}
 	}
 }

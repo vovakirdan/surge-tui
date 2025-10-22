@@ -141,8 +141,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			a.lastError = msg.Err
 		} else {
-			// Переинициализируем экран проекта чтобы перечитать дерево
-			a.screens[ProjectScreen] = a.createScreen(ProjectScreen)
+			var cmds []tea.Cmd
+			newScreen := a.createScreen(ProjectScreen)
+			// передаем последнюю известную геометрию
+			if a.theme.Width() > 0 && a.theme.Height() > 0 {
+				if updated, cmd := newScreen.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()}); updated != nil {
+					newScreen = updated
+					if cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
+			}
+			if initCmd := newScreen.Init(); initCmd != nil {
+				cmds = append(cmds, initCmd)
+			}
+			a.screens[ProjectScreen] = newScreen
+			if a.currentScreen == ProjectScreen {
+				if enter := newScreen.OnEnter(); enter != nil {
+					cmds = append(cmds, enter)
+				}
+			}
+			if len(cmds) > 0 {
+				return a, tea.Batch(cmds...)
+			}
 		}
 		return a, nil
 	}
