@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -195,6 +196,13 @@ func getDefaultLogPath() string {
 	}
 
 	return filepath.Join(cacheDir, "surge-tui", "app.log")
+}
+
+// ValidateSurgeBinary проверяет доступность surge binary
+func (c *Config) ValidateSurgeBinary() error {
+	// Пробуем выполнить surge --version
+	cmd := exec.Command(c.SurgeBinary, "--version")
+	return cmd.Run()
 }
 
 // Validate проверяет корректность конфигурации

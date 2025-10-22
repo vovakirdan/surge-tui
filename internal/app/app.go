@@ -37,6 +37,7 @@ type App struct {
     router        *ScreenRouter
     eventBus      *EventBus
     theme         *styles.Theme
+    commands      *CommandRegistry
 
     // Глобальное состояние
     projectPath   string
@@ -58,6 +59,7 @@ func New(cfg *config.Config, projectPath string) *App {
         eventBus:     NewEventBus(),
         theme:        styles.NewTheme(cfg.Theme),
         unsavedFiles: make(map[string]bool),
+        commands:     NewCommandRegistry(),
     }
 
     // Путь к проекту: CLI → конфиг → текущая директория
@@ -74,6 +76,9 @@ func New(cfg *config.Config, projectPath string) *App {
 
     // Инициализируем роутер
     app.router = NewScreenRouter(app)
+
+    // Регистрируем базовые глобальные команды из конфига
+    app.registerBaseCommands()
 
 	// Создаем экраны (ленивая инициализация)
 	app.initScreens()
@@ -162,7 +167,17 @@ func (a *App) initScreens() {
 
 // handleGlobalKeys обрабатывает глобальные горячие клавиши
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-    switch msg.String() {
+    key := msg.String()
+
+    // Сначала пытаемся найти команду через реестр
+    if cmd := a.commands.Resolve(key, a.currentScreen); cmd != nil {
+        if cmd.Enabled == nil || cmd.Enabled(a) {
+            return a, cmd.Run(a)
+        }
+        return a, nil
+    }
+
+    switch key {
     case "ctrl+c", "ctrl+q":
         return a.handleQuit()
     case "ctrl+p":
@@ -226,18 +241,27 @@ func (a *App) handleScreenSwitch(msg ScreenSwitchMsg) (tea.Model, tea.Cmd) {
 	// Переключаемся на новый экран
 	a.currentScreen = msg.ScreenType
 
-	// Инициализируем новый экран если нужно
-	newScreen := a.screens[a.currentScreen]
-	if newScreen == nil {
-		newScreen = a.createScreen(a.currentScreen)
-		a.screens[a.currentScreen] = newScreen
-	}
+    // Инициализируем новый экран если нужно
+    newScreen := a.screens[a.currentScreen]
+    if newScreen == nil {
+        newScreen = a.createScreen(a.currentScreen)
+        a.screens[a.currentScreen] = newScreen
+    }
 
-	// Входим в новый экран
-	var enterCmd tea.Cmd
-	if newScreen != nil {
-		enterCmd = newScreen.OnEnter()
-	}
+    // Прокидываем последнюю известную геометрию окна в новый экран,
+    // иначе у него останутся нулевые размеры и он будет показывать "Loading..."
+    if newScreen != nil && a.theme.Width() > 0 && a.theme.Height() > 0 {
+        if updated, _ := newScreen.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()}); updated != nil {
+            a.screens[a.currentScreen] = updated
+            newScreen = updated
+        }
+    }
+
+    // Входим в новый экран
+    var enterCmd tea.Cmd
+    if newScreen != nil {
+        enterCmd = newScreen.OnEnter()
+    }
 
 	return a, tea.Batch(exitCmd, enterCmd)
 }
@@ -275,7 +299,7 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	case CommandPaletteScreen:
 		return screens.NewPlaceholderScreen("Command Palette")
 	case SettingsScreen:
-		return screens.NewPlaceholderScreen("Settings")
+		return screens.NewSettingsScreen(a.config)
 	case HelpScreen:
 		return screens.NewPlaceholderScreen("Help")
 	case LogsScreen:
@@ -283,6 +307,11 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	default:
 		return screens.NewPlaceholderScreen("Unknown")
 	}
+}
+
+// ConfigChangedMsg сообщение об изменении конфигурации
+type ConfigChangedMsg struct {
+	Config *config.Config
 }
 
 // renderStatusBar отрисовывает статус-бар
@@ -300,6 +329,34 @@ func (a *App) renderStatusBar() string {
     }
     help := "Ctrl+Q Quit • Ctrl+P Commands • F1 Help"
     return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
+}
+
+// registerBaseCommands wires global commands from config keybindings.
+func (a *App) registerBaseCommands() {
+    kb := a.config.Keybindings
+    // Helper to register a global command
+    reg := func(id, title, key string, run func(*App) tea.Cmd, enabled func(*App) bool) {
+        if key == "" {
+            return
+        }
+        a.commands.Register(&Command{
+            ID:      id,
+            Title:   title,
+            Key:     key,
+            Screen:  nil,
+            Enabled: enabled,
+            Run:     run,
+        })
+    }
+
+    reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return tea.Quit }, nil)
+    reg("open_settings", "Open Settings", kb["settings"], func(a *App) tea.Cmd { return a.router.SwitchTo(SettingsScreen) }, nil)
+    reg("command_palette", "Command Palette", kb["command_palette"], func(a *App) tea.Cmd { return a.router.SwitchTo(CommandPaletteScreen) }, nil)
+    reg("switch_screen", "Next Screen", kb["switch_screen"], func(a *App) tea.Cmd { return a.router.SwitchToNext() }, nil)
+    reg("switch_screen_back", "Prev Screen", kb["switch_screen_back"], func(a *App) tea.Cmd { return a.router.SwitchToPrevious() }, nil)
+    reg("init_project", "Init Project", kb["init_project"], func(a *App) tea.Cmd { return a.initProject() }, func(a *App) bool {
+        return a.surgeAvailable && !a.isSurgeProject() && a.projectPath != ""
+    })
 }
 
 // Сообщения для приложения
