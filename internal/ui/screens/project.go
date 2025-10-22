@@ -37,11 +37,6 @@ const (
 	StatusPanel
 )
 
-// OpenFileMsg сообщение об открытии файла
-type OpenFileMsg struct {
-	FilePath string
-}
-
 // ProjectScreenReal настоящий экран проекта с деревом файлов
 type ProjectScreenReal struct {
 	BaseScreen
@@ -203,14 +198,14 @@ func (ps *ProjectScreenReal) switchPanel() {
 
 // loadFileTree загружает дерево файлов асинхронно
 func (ps *ProjectScreenReal) loadFileTree() tea.Cmd {
-    ps.loading = true
-    ps.err = nil
-    ps.fileTree = nil
-    return func() tea.Msg {
-        tree, err := fs.NewFileTree(ps.projectPath)
-        if err != nil {
-            return fileTreeErrorMsg{err: err}
-        }
+	ps.loading = true
+	ps.err = nil
+	ps.fileTree = nil
+	return func() tea.Msg {
+		tree, err := fs.NewFileTree(ps.projectPath)
+		if err != nil {
+			return fileTreeErrorMsg{err: err}
+		}
 		return fileTreeLoadedMsg{tree: tree}
 	}
 }
@@ -223,10 +218,10 @@ func (ps *ProjectScreenReal) openSelectedFile() tea.Cmd {
 	}
 
 	if selected.IsDir {
-		// Для директорий переключаем состояние разворота
-		ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
-		ps.updateStats()
-		return nil
+		path := selected.Path
+		return func() tea.Msg {
+			return OpenDirectoryMsg{Path: path}
+		}
 	}
 
 	// Для файлов отправляем сообщение об открытии
