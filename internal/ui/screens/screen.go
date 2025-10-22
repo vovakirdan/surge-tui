@@ -22,6 +22,19 @@ type Screen interface {
 	FullHelp() []string // Полная справка
 }
 
+// KeyInterceptor позволяет экрану перехватить обработку нажатий
+// клавиш до глобальных горячих клавиш приложения. Возвращает true,
+// если событие обработано экраном и не должно распространяться дальше.
+type KeyInterceptor interface {
+	InterceptKey(tea.KeyMsg) (bool, tea.Cmd)
+}
+
+// FileOpener реализуется экранами, которые умеют открывать файл по пути.
+// Используется приложением для передачи выбранного файла в редактор.
+type FileOpener interface {
+	OpenFile(path string) tea.Cmd
+}
+
 // BaseScreen базовая реализация экрана с общей функциональностью
 type BaseScreen struct {
 	width  int
