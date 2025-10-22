@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"context"
 	"path/filepath"
 	"time"
 
@@ -139,8 +140,11 @@ func (ss *SettingsScreen) validateField(field SettingsField) tea.Cmd {
 	switch field {
 	case SurgeBinaryField:
 		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
 			result := ValidationResult{Valid: true, Message: "Surge binary accessible"}
-			if err := ss.config.ValidateSurgeBinary(); err != nil {
+			if err := ss.config.ValidateSurgeBinary(ctx); err != nil {
 				result.Valid = false
 				result.Message = "Surge binary not found or not executable"
 			}

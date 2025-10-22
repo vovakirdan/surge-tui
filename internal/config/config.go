@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,10 +203,12 @@ func getDefaultLogPath() string {
 	return filepath.Join(cacheDir, "surge-tui", "app.log")
 }
 
-// ValidateSurgeBinary проверяет доступность surge binary
-func (c *Config) ValidateSurgeBinary() error {
-	// Пробуем выполнить surge --version
-	cmd := exec.Command(c.SurgeBinary, "--version")
+// ValidateSurgeBinary проверяет доступность surge binary с таймаутом.
+func (c *Config) ValidateSurgeBinary(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, c.SurgeBinary, "--version")
 	return cmd.Run()
 }
 
