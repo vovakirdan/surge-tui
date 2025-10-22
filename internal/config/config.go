@@ -14,7 +14,7 @@ type Config struct {
 	Theme string `yaml:"theme"` // "dark" или "light"
 
 	// Пути
-	SurgeBinary   string `yaml:"surge_binary"`   // Путь к бинарю surge
+	SurgeBinary    string `yaml:"surge_binary"`    // Путь к бинарю surge
 	DefaultProject string `yaml:"default_project"` // Путь к проекту по умолчанию
 
 	// Редактор
@@ -42,10 +42,10 @@ type EditorConfig struct {
 
 // PerformanceConfig настройки производительности
 type PerformanceConfig struct {
-	MaxFileSize    int64 `yaml:"max_file_size"`    // Максимальный размер файла в байтах
-	MaxLogEntries  int   `yaml:"max_log_entries"`  // Максимальное количество записей в логе
-	RefreshRate    int   `yaml:"refresh_rate"`     // Частота обновления UI в миллисекундах
-	MemoryLimit    int64 `yaml:"memory_limit"`     // Лимит памяти в байтах
+	MaxFileSize   int64 `yaml:"max_file_size"`   // Максимальный размер файла в байтах
+	MaxLogEntries int   `yaml:"max_log_entries"` // Максимальное количество записей в логе
+	RefreshRate   int   `yaml:"refresh_rate"`    // Частота обновления UI в миллисекундах
+	MemoryLimit   int64 `yaml:"memory_limit"`    // Лимит памяти в байтах
 }
 
 // LoggingConfig настройки логирования
@@ -57,7 +57,7 @@ type LoggingConfig struct {
 
 // DefaultConfig возвращает конфигурацию по умолчанию
 func DefaultConfig() *Config {
-    return &Config{
+	return &Config{
 		Theme:          "dark",
 		SurgeBinary:    "surge", // Ищем в PATH
 		DefaultProject: "",
@@ -71,32 +71,36 @@ func DefaultConfig() *Config {
 			SyntaxHighlight: true,
 		},
 
-        Keybindings: map[string]string{
-            "quit":             "ctrl+q",
-            "command_palette":  "ctrl+p",
-            "help":             "f1",
-            "settings":         "ctrl+comma",
-            "save":             "ctrl+s",
-            "build":            "ctrl+b",
-            "search":           "ctrl+f",
-            "undo":             "ctrl+z",
-            "redo":             "ctrl+y",
-            "external_editor":  "ctrl+e",
-            "switch_screen":    "tab",
-            "switch_screen_back": "shift+tab",
-            "init_project":     "ctrl+i",
-        },
+		Keybindings: map[string]string{
+			"quit":               "ctrl+q",
+			"command_palette":    "ctrl+p",
+			"help":               "f1",
+			"settings":           "ctrl+comma",
+			"save":               "ctrl+s",
+			"build":              "ctrl+b",
+			"search":             "ctrl+f",
+			"undo":               "ctrl+z",
+			"redo":               "ctrl+y",
+			"external_editor":    "ctrl+e",
+			"switch_screen":      "tab",
+			"switch_screen_back": "shift+tab",
+			"init_project":       "ctrl+i",
+			"goto_project":       "ctrl+1",
+			"goto_files":         "ctrl+2",
+			"goto_editor":        "ctrl+3",
+			"goto_build":         "ctrl+4",
+		},
 
 		Performance: PerformanceConfig{
 			MaxFileSize:   10 * 1024 * 1024, // 10 MB
 			MaxLogEntries: 1000,
-			RefreshRate:   50, // 20 FPS
+			RefreshRate:   50,                // 20 FPS
 			MemoryLimit:   512 * 1024 * 1024, // 512 MB
 		},
 
 		Logging: LoggingConfig{
 			Level:    "info",
-			FilePath: "", // Будет определен автоматически
+			FilePath: "",               // Будет определен автоматически
 			MaxSize:  10 * 1024 * 1024, // 10 MB
 		},
 	}
@@ -104,7 +108,7 @@ func DefaultConfig() *Config {
 
 // Load загружает конфигурацию из файла
 func Load() (*Config, error) {
-    cfg := DefaultConfig()
+	cfg := DefaultConfig()
 
 	// Определяем путь к конфигурационному файлу
 	configPath, err := getConfigPath()
@@ -126,20 +130,20 @@ func Load() (*Config, error) {
 		return cfg, err
 	}
 
-    // Парсим YAML
-    if err := yaml.Unmarshal(data, cfg); err != nil {
-        return cfg, err
-    }
+	// Парсим YAML
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return cfg, err
+	}
 
-    // Устанавливаем пути по умолчанию если они не заданы
-    if cfg.Logging.FilePath == "" {
-        cfg.Logging.FilePath = getDefaultLogPath()
-    }
+	// Устанавливаем пути по умолчанию если они не заданы
+	if cfg.Logging.FilePath == "" {
+		cfg.Logging.FilePath = getDefaultLogPath()
+	}
 
-    // Валидация значений и нормализация дефолтов
-    _ = cfg.Validate()
+	// Валидация значений и нормализация дефолтов
+	_ = cfg.Validate()
 
-    return cfg, nil
+	return cfg, nil
 }
 
 // Save сохраняет конфигурацию в файл
