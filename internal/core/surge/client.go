@@ -13,8 +13,8 @@ import (
 
 // Client клиент для взаимодействия с surge CLI
 type Client struct {
-	binaryPath string
-	timeout    time.Duration
+    binaryPath string
+    timeout    time.Duration
 }
 
 // NewClient создает новый клиент surge
@@ -38,12 +38,12 @@ func (c *Client) CheckAvailable(ctx context.Context) error {
 
 // GetVersion возвращает версию surge
 func (c *Client) GetVersion(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, c.binaryPath, "--version")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
+    cmd := exec.CommandContext(ctx, c.binaryPath, "--version")
+    output, err := cmd.Output()
+    if err != nil {
+        return "", err
+    }
+    return strings.TrimSpace(string(output)), nil
 }
 
 // Diagnose запускает `surge diag --format=json` по пути к файлу или директории.
@@ -157,26 +157,75 @@ func (c *Client) InitProject(ctx context.Context, projectPath string) error {
     return cmd.Run()
 }
 
-// GetFixes получает список автофиксов для проекта
-func (c *Client) GetFixes(ctx context.Context, projectPath string) ([]AutoFix, error) {
-	cmd := exec.CommandContext(ctx, c.binaryPath, "fix", "--list", "--format=json", projectPath)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
+// ListFixes возвращает доступные фиксы через `surge diag --format=json --suggest`.
+// Для одиночного файла вернёт карту с одним ключом — путем файла.
+func (c *Client) ListFixes(ctx context.Context, targetPath string) (map[string][]FixJSON, error) {
+    resp, err := c.Diagnose(ctx, targetPath, false, true)
+    if err != nil {
+        return nil, err
+    }
 
-	var fixes []AutoFix
-	if err := json.Unmarshal(output, &fixes); err != nil {
-		return nil, err
-	}
+    fixesByFile := make(map[string][]FixJSON)
 
-	return fixes, nil
+    if len(resp.Batch) > 0 {
+        // Директория: пройдём по каждому файлу
+        for displayPath, out := range resp.Batch {
+            for _, dj := range out.Diagnostics {
+                if len(dj.Fixes) == 0 {
+                    continue
+                }
+                file := dj.Location.File
+                if file == "" {
+                    file = displayPath
+                }
+                fixesByFile[file] = append(fixesByFile[file], dj.Fixes...)
+            }
+        }
+        return fixesByFile, nil
+    }
+
+    if resp.Single != nil {
+        // Одиночный файл
+        // Пытаемся определить имя файла из первой диагностики
+        file := targetPath
+        for _, dj := range resp.Single.Diagnostics {
+            if dj.Location.File != "" {
+                file = dj.Location.File
+                break
+            }
+        }
+        for _, dj := range resp.Single.Diagnostics {
+            if len(dj.Fixes) == 0 {
+                continue
+            }
+            fixesByFile[file] = append(fixesByFile[file], dj.Fixes...)
+        }
+        return fixesByFile, nil
+    }
+
+    return fixesByFile, nil
 }
 
-// ApplyFix применяет автофикс
-func (c *Client) ApplyFix(ctx context.Context, projectPath, fixID string) error {
-	cmd := exec.CommandContext(ctx, c.binaryPath, "fix", "--apply", fixID, projectPath)
-	return cmd.Run()
+// ApplyFixByID применяет фикс с указанным ID к одному файлу.
+// Эквивалентно: `surge fix --id <id> <file.sg>`.
+func (c *Client) ApplyFixByID(ctx context.Context, filePath, fixID string) error {
+    if fixID == "" {
+        return fmt.Errorf("empty fix id")
+    }
+    cmd := exec.CommandContext(ctx, c.binaryPath, "fix", "--id", fixID, filePath)
+    return cmd.Run()
+}
+
+// ApplyAllFixes применяет все безопасные фиксы (к файлу или директории).
+func (c *Client) ApplyAllFixes(ctx context.Context, targetPath string) error {
+    cmd := exec.CommandContext(ctx, c.binaryPath, "fix", "--all", targetPath)
+    return cmd.Run()
+}
+
+// ApplyOneFix применяет один первый доступный фикс (к файлу или директории).
+func (c *Client) ApplyOneFix(ctx context.Context, targetPath string) error {
+    cmd := exec.CommandContext(ctx, c.binaryPath, "fix", "--once", targetPath)
+    return cmd.Run()
 }
 
 // parseDiagnostic парсит строку диагностики из JSON
@@ -202,46 +251,28 @@ type BuildResult struct {
 
 // Diagnostic диагностическое сообщение
 type Diagnostic struct {
-	Level     string    `json:"level"`     // error, warning, info
-	Code      string    `json:"code"`      // Код ошибки
-	Message   string    `json:"message"`   // Текст сообщения
-	File      string    `json:"file"`      // Путь к файлу
-	Line      int       `json:"line"`      // Номер строки
-	Column    int       `json:"column"`    // Номер колонки
-	Span      SpanInfo  `json:"span"`      // Информация о диапазоне
-	Fixes     []AutoFix `json:"fixes"`     // Доступные автофиксы
+    Level     string    `json:"level"`     // error, warning, info
+    Code      string    `json:"code"`      // Код ошибки
+    Message   string    `json:"message"`   // Текст сообщения
+    File      string    `json:"file"`      // Путь к файлу
+    Line      int       `json:"line"`      // Номер строки
+    Column    int       `json:"column"`    // Номер колонки
+    Span      SpanInfo  `json:"span"`      // Информация о диапазоне
+    Fixes     []FixJSON `json:"fixes"`     // Доступные автофиксы
 }
 
 // SpanInfo информация о диапазоне в файле
 type SpanInfo struct {
-	StartLine   int `json:"start_line"`
-	StartColumn int `json:"start_column"`
-	EndLine     int `json:"end_line"`
-	EndColumn   int `json:"end_column"`
-}
-
-// AutoFix автоматическое исправление
-type AutoFix struct {
-	ID          string      `json:"id"`          // Уникальный ID фикса
-	Type        string      `json:"type"`        // replace, delete, insert
-	Description string      `json:"description"` // Описание исправления
-	File        string      `json:"file"`        // Файл для исправления
-	Span        SpanInfo    `json:"span"`        // Диапазон для исправления
-	NewText     string      `json:"new_text"`    // Новый текст (для replace/insert)
-	Preview     FixPreview  `json:"preview"`     // Предпросмотр изменений
-}
-
-// FixPreview предпросмотр изменений
-type FixPreview struct {
-	Before []string `json:"before"` // Строки до изменения
-	After  []string `json:"after"`  // Строки после изменения
-	Context int     `json:"context"` // Количество строк контекста
+    StartLine   int `json:"start_line"`
+    StartColumn int `json:"start_column"`
+    EndLine     int `json:"end_line"`
+    EndColumn   int `json:"end_column"`
 }
 
 // String возвращает строковое представление диагностики
 func (d *Diagnostic) String() string {
-	return fmt.Sprintf("%s:%d:%d: %s: %s [%s]",
-		d.File, d.Line, d.Column, d.Level, d.Message, d.Code)
+    return fmt.Sprintf("%s:%d:%d: %s: %s [%s]",
+        d.File, d.Line, d.Column, d.Level, d.Message, d.Code)
 }
 
 // IsError проверяет, является ли диагностика ошибкой
