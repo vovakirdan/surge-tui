@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -141,10 +142,29 @@ func Load() (*Config, error) {
 		cfg.Logging.FilePath = getDefaultLogPath()
 	}
 
+	// Заполняем отсутствующие привязки клавиш значениями по умолчанию
+	defaults := DefaultConfig()
+	cfg.applyKeybindingDefaults(defaults.Keybindings)
+
 	// Валидация значений и нормализация дефолтов
 	_ = cfg.Validate()
 
 	return cfg, nil
+}
+
+func (c *Config) applyKeybindingDefaults(defaults map[string]string) {
+	if defaults == nil {
+		return
+	}
+	if c.Keybindings == nil {
+		c.Keybindings = make(map[string]string, len(defaults))
+	}
+	for key, value := range defaults {
+		current, ok := c.Keybindings[key]
+		if !ok || strings.TrimSpace(current) == "" {
+			c.Keybindings[key] = value
+		}
+	}
 }
 
 // Save сохраняет конфигурацию в файл

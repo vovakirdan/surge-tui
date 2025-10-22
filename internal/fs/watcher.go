@@ -22,9 +22,9 @@ type FileChangeCallback func(event FileChangeEvent)
 
 // FileChangeEvent событие изменения файла
 type FileChangeEvent struct {
-	Path      string           // Путь к файлу
-	Operation FileOperation    // Тип операции
-	IsDir     bool            // Является ли директорией
+	Path      string        // Путь к файлу
+	Operation FileOperation // Тип операции
+	IsDir     bool          // Является ли директорией
 }
 
 // FileOperation тип операции с файлом

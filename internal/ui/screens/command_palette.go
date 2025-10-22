@@ -15,6 +15,7 @@ type CommandEntry struct {
 	Key     string
 	Context string
 	Enabled bool
+	RawKey  string
 }
 
 // CommandFetcher возвращает доступные команды.
@@ -53,6 +54,14 @@ func NewCommandPaletteScreen(fetch CommandFetcher) *CommandPaletteScreen {
 
 func (ps *CommandPaletteScreen) Init() tea.Cmd {
 	ps.refresh()
+	return nil
+}
+
+func (ps *CommandPaletteScreen) OnEnter() tea.Cmd {
+	ps.refresh()
+	ps.filter.SetValue("")
+	ps.selected = 0
+	ps.applyFilter()
 	return nil
 }
 
@@ -151,7 +160,7 @@ func (ps *CommandPaletteScreen) applyFilter() {
 	filter := strings.ToLower(strings.TrimSpace(ps.filter.Value()))
 	filtered := make([]CommandEntry, 0, len(ps.entries))
 	for _, entry := range ps.entries {
-		if filter == "" || strings.Contains(strings.ToLower(entry.Title), filter) || strings.Contains(strings.ToLower(entry.Key), filter) || strings.Contains(strings.ToLower(entry.Context), filter) {
+		if filter == "" || strings.Contains(strings.ToLower(entry.Title), filter) || strings.Contains(strings.ToLower(entry.Key), filter) || strings.Contains(strings.ToLower(entry.Context), filter) || strings.Contains(strings.ToLower(entry.RawKey), filter) {
 			filtered = append(filtered, entry)
 		}
 	}

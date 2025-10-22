@@ -21,11 +21,11 @@ type FileNode struct {
 
 // FileTree дерево файлов
 type FileTree struct {
-	Root         *FileNode
-	FlatList     []*FileNode // Плоский список для навигации
-	Selected     int
-	ShowHidden   bool
-	FilterSurge  bool // Показывать только .sg файлы
+	Root        *FileNode
+	FlatList    []*FileNode // Плоский список для навигации
+	Selected    int
+	ShowHidden  bool
+	FilterSurge bool // Показывать только .sg файлы
 }
 
 // NewFileTree создает новое дерево файлов

@@ -293,8 +293,8 @@ func (ps *ProjectScreenReal) renderFileTreePanel() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
-		Width(ps.treeWidth - 1).
-		Height(ps.Height() - 2).
+		Width(ps.treeWidth-1).
+		Height(ps.Height()-2).
 		Padding(0, 1)
 
 	// Заголовок панели
@@ -323,8 +323,8 @@ func (ps *ProjectScreenReal) renderStatusPanel() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
-		Width(ps.statusWidth - 1).
-		Height(ps.Height() - 2).
+		Width(ps.statusWidth-1).
+		Height(ps.Height()-2).
 		Padding(0, 1)
 
 	// Заголовок панели

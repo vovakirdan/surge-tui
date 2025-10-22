@@ -351,17 +351,15 @@ func (a *App) registerBaseCommands() {
 	kb := a.config.Keybindings
 	// Helper to register a global command
 	reg := func(id, title, key string, run func(*App) tea.Cmd, enabled func(*App) bool) {
-		if key == "" {
-			return
-		}
-		a.commands.Register(&Command{
+		cmd := &Command{
 			ID:      id,
 			Title:   title,
 			Key:     key,
 			Screen:  nil,
 			Enabled: enabled,
 			Run:     run,
-		})
+		}
+		a.commands.Register(cmd)
 	}
 
 	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return tea.Quit }, nil)
@@ -409,12 +407,17 @@ func (a *App) commandFetcher() screens.CommandFetcher {
 			if cmd.Screen != nil {
 				context = a.screenTitle(*cmd.Screen)
 			}
+			displayKey := prettifyKey(cmd.Key)
+			if displayKey == "" {
+				displayKey = "—"
+			}
 			entries = append(entries, screens.CommandEntry{
 				ID:      cmd.ID,
 				Title:   cmd.Title,
-				Key:     prettifyKey(cmd.Key),
+				Key:     displayKey,
 				Context: context,
 				Enabled: cmd.Enabled == nil || cmd.Enabled(a),
+				RawKey:  cmd.Key,
 			})
 		}
 		return entries
