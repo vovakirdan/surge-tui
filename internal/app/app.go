@@ -143,7 +143,31 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case screens.OpenFileMsg:
-		return a, a.router.SwitchTo(EditorScreen)
+		var cmds []tea.Cmd
+		editor := a.screens[EditorScreen]
+		if editor == nil {
+			editor = a.createScreen(EditorScreen)
+			a.screens[EditorScreen] = editor
+			if a.theme.Width() > 0 && a.theme.Height() > 0 {
+				if updated, cmd := editor.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()}); updated != nil {
+					editor = updated
+					a.screens[EditorScreen] = updated
+					if cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
+			}
+			if init := editor.Init(); init != nil {
+				cmds = append(cmds, init)
+			}
+		}
+		if opener, ok := editor.(screens.FileOpener); ok {
+			if cmd := opener.OpenFile(msg.FilePath); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		cmds = append(cmds, a.router.SwitchTo(EditorScreen))
+		return a, tea.Batch(cmds...)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err
@@ -218,7 +242,7 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	case ProjectScreen:
 		return screens.NewProjectScreenReal(a.projectPath)
 	case EditorScreen:
-		return screens.NewPlaceholderScreen("Editor")
+		return screens.NewEditorScreen(a.config, a.theme)
 	case BuildScreen:
 		return screens.NewPlaceholderScreen("Build & Diagnostics")
 	case FixModeScreen:

@@ -2,10 +2,19 @@ package app
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/ui/screens"
 )
 
 // handleGlobalKeys обрабатывает глобальные горячие клавиши
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if current := a.getCurrentScreen(); current != nil {
+		if interceptor, ok := current.(screens.KeyInterceptor); ok {
+			if handled, cmd := interceptor.InterceptKey(msg); handled {
+				return a, cmd
+			}
+		}
+	}
+
 	key := msg.String()
 
 	// Сначала пытаемся найти команду через реестр
