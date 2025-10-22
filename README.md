@@ -86,7 +86,6 @@ go build -o surge-tui ./cmd/surge-tui
 - `F1` - справка
 - `Ctrl+,` - настройки
 - `Ctrl+Q` - выход
-- `Ctrl+1/3/4` - быстрый переход к Проекту / Редактору / Сборке
 
 ### Проект/Файлы
 - `↑/↓` или `j/k` - навигация
@@ -132,9 +131,6 @@ keybindings:
   quit: "ctrl+q"
   command_palette: "ctrl+p"
   # ... другие привязки
-  goto_project: "ctrl+1"
-  goto_editor: "ctrl+3"
-  goto_build: "ctrl+4"
 
 performance:
   max_file_size: 10485760  # 10MB

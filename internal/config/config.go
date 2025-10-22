@@ -87,9 +87,6 @@ func DefaultConfig() *Config {
 			"switch_screen":      "tab",
 			"switch_screen_back": "shift+tab",
 			"init_project":       "ctrl+i",
-			"goto_project":       "ctrl+1",
-			"goto_editor":        "ctrl+3",
-			"goto_build":         "ctrl+4",
 		},
 
 		Performance: PerformanceConfig{

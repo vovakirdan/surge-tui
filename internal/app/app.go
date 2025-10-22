@@ -50,6 +50,11 @@ type App struct {
 	surgeVersion   string
 }
 
+type projectInitCommander interface {
+	CanInitProject() bool
+	InitProjectInSelectedDir() tea.Cmd
+}
+
 // New создает новое приложение
 func New(cfg *config.Config, projectPath string) *App {
 	app := &App{
@@ -133,6 +138,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Config != nil {
 			*a.config = *msg.Config
 			a.theme = styles.NewTheme(a.config.Theme)
+			a.applyThemeToScreens()
 			a.rebuildCommandBindings()
 		}
 		return a, nil
@@ -243,9 +249,20 @@ func (a *App) renderStatusBar() string {
 	} else {
 		surge = "Surge: not found"
 	}
-	screensInfo := a.screenShortcutsSummary()
 	help := "Ctrl+Q Quit • Ctrl+P Commands • F1 Help"
-	return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s | %s", proj, surge, screensInfo, help))
+	return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
+}
+
+func (a *App) applyThemeToScreens() {
+	for screenType, screen := range a.screens {
+		if screen == nil {
+			continue
+		}
+		if themeable, ok := screen.(interface{ SetTheme(*styles.Theme) }); ok {
+			themeable.SetTheme(a.theme)
+			a.screens[screenType] = screen
+		}
+	}
 }
 
 // registerBaseCommands wires global commands from config keybindings.
@@ -270,24 +287,15 @@ func (a *App) registerBaseCommands() {
 	reg("switch_screen", "Next Screen", kb["switch_screen"], func(a *App) tea.Cmd { return a.router.SwitchToNext() }, nil)
 	reg("switch_screen_back", "Prev Screen", kb["switch_screen_back"], func(a *App) tea.Cmd { return a.router.SwitchToPrevious() }, nil)
 	reg("init_project", "Init Project", kb["init_project"], func(a *App) tea.Cmd { return a.initProject() }, func(a *App) bool {
-		return a.surgeAvailable && !a.isSurgeProject() && a.projectPath != ""
+		if !a.surgeAvailable || a.surgeClient == nil || a.currentScreen != ProjectScreen {
+			return false
+		}
+		screen := a.getCurrentScreen()
+		if commander, ok := screen.(projectInitCommander); ok {
+			return commander.CanInitProject()
+		}
+		return false
 	})
-	reg("goto_project", "Go to Project", kb["goto_project"], func(a *App) tea.Cmd { return a.router.SwitchTo(ProjectScreen) }, nil)
-	reg("goto_editor", "Go to Editor", kb["goto_editor"], func(a *App) tea.Cmd { return a.router.SwitchTo(EditorScreen) }, nil)
-	reg("goto_build", "Go to Build", kb["goto_build"], func(a *App) tea.Cmd { return a.router.SwitchTo(BuildScreen) }, nil)
-
-	if cmd := a.commands.Get("goto_project"); cmd != nil {
-		s := ProjectScreen
-		cmd.Screen = &s
-	}
-	if cmd := a.commands.Get("goto_editor"); cmd != nil {
-		s := EditorScreen
-		cmd.Screen = &s
-	}
-	if cmd := a.commands.Get("goto_build"); cmd != nil {
-		s := BuildScreen
-		cmd.Screen = &s
-	}
 }
 
 func (a *App) rebuildCommandBindings() {
@@ -342,30 +350,6 @@ func (a *App) screenTitle(screen ScreenType) string {
 	default:
 		return "Unknown"
 	}
-}
-
-func (a *App) screenShortcutsSummary() string {
-	kb := a.config.Keybindings
-	type pair struct {
-		label string
-		key   string
-	}
-	items := []pair{
-		{"Proj", kb["goto_project"]},
-		{"Edit", kb["goto_editor"]},
-		{"Build", kb["goto_build"]},
-	}
-	var parts []string
-	for _, item := range items {
-		if item.key == "" {
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s:%s", item.label, prettifyKey(item.key)))
-	}
-	if len(parts) == 0 {
-		return "Screens: —"
-	}
-	return "Screens " + strings.Join(parts, " • ")
 }
 
 func prettifyKey(key string) string {
@@ -428,17 +412,17 @@ func (a *App) checkSurgeAvailability() tea.Cmd {
 	}
 }
 
-// initProject вызывает `surge init` для текущего пути проекта
+// initProject вызывает `surge init` для текущего выбраного пути на экране проекта
 func (a *App) initProject() tea.Cmd {
-	if a.surgeClient == nil || !a.surgeAvailable || a.projectPath == "" || a.isSurgeProject() {
+	if a.surgeClient == nil || !a.surgeAvailable {
 		return nil
 	}
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err := a.surgeClient.InitProject(ctx, a.projectPath)
-		return ProjectInitializedMsg{Path: a.projectPath, Err: err}
+	if screen := a.getCurrentScreen(); screen != nil {
+		if commander, ok := screen.(projectInitCommander); ok {
+			return commander.InitProjectInSelectedDir()
+		}
 	}
+	return nil
 }
 
 // projectLabel формирует подпись проекта для статус-бара
