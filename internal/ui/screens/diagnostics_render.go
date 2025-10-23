@@ -79,6 +79,9 @@ func (ds *DiagnosticsScreen) renderHeaderSection() string {
 		lines = append(lines, meta)
 	}
 
+	lines = clampLines(lines, ds.headerHeight(), false)
+	lines = padLines(lines, ds.headerHeight())
+
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
@@ -168,12 +171,14 @@ func (ds *DiagnosticsScreen) renderDetailSection() string {
 
 	style := lipgloss.NewStyle().
 		Width(width).
+		Height(ds.detailHeight()).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(diagSecondaryColor)).
 		Padding(0, 1)
 
 	if len(ds.diagnostics) == 0 || ds.selected < 0 || ds.selected >= len(ds.diagnostics) {
-		return style.Render("Select a diagnostic to see details.")
+		content := padLines([]string{"Select a diagnostic to see details."}, max(ds.detailHeight()-2, 1))
+		return style.Render(strings.Join(content, "\n"))
 	}
 
 	entry := ds.diagnostics[ds.selected]
@@ -188,28 +193,52 @@ func (ds *DiagnosticsScreen) renderDetailSection() string {
 		header = fmt.Sprintf("%s [%s]", header, entry.Code)
 	}
 
-	var builder []string
-	builder = append(builder, lipgloss.NewStyle().Bold(true).Render(header))
-	builder = append(builder, entry.Message)
+	var content []string
+	content = append(content, lipgloss.NewStyle().Bold(true).Render(header))
+	content = append(content, entry.Message)
 
 	if entry.HasFixes {
-		builder = append(builder, lipgloss.NewStyle().
+		content = append(content, lipgloss.NewStyle().
 			Foreground(lipgloss.Color(diagInfoColor)).
 			Render("🔧 Fixes available (open Fix Mode to apply)."))
 	}
 
 	if ds.includeNotes && len(entry.Notes) > 0 {
-		builder = append(builder, lipgloss.NewStyle().Bold(true).Render("Notes:"))
+		content = append(content, lipgloss.NewStyle().Bold(true).Render("Notes:"))
 		for _, note := range entry.Notes {
-			builder = append(builder, "  • "+note)
+			content = append(content, "  • "+note)
 		}
 	}
 
-	builder = append(builder, lipgloss.NewStyle().
+	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(diagSecondaryColor)).
-		Render("Enter: open in editor • F5: rerun diagnostics • n: toggle notes"))
+		Render("Enter: open in editor • F5: rerun diagnostics • n: toggle notes")
 
-	return style.Render(strings.Join(builder, "\n"))
+	maxContentLines := max(ds.detailHeight()-2, 1)
+	baseSlots := maxContentLines
+	if footer != "" {
+		baseSlots--
+	}
+	if baseSlots < 0 {
+		baseSlots = 0
+	}
+
+	var limited []string
+	if baseSlots > 0 {
+		limited = clampLines(content, baseSlots, true)
+	} else if footer == "" {
+		limited = clampLines(content, maxContentLines, true)
+	} else {
+		limited = []string{}
+	}
+
+	if footer != "" {
+		limited = append(limited, footer)
+	}
+
+	limited = padLines(limited, maxContentLines)
+
+	return style.Render(strings.Join(limited, "\n"))
 }
 
 func (ds *DiagnosticsScreen) renderSeverity(severity string) string {
@@ -257,4 +286,32 @@ func truncatePath(path string, width int) string {
 		return truncateString(base, width)
 	}
 	return "…" + truncateString(path[len(path)-width+1:], width-1)
+}
+
+func clampLines(lines []string, height int, ellipsis bool) []string {
+	if height <= 0 {
+		return []string{}
+	}
+	if len(lines) <= height {
+		return append([]string{}, lines...)
+	}
+	out := append([]string{}, lines[:height]...)
+	if ellipsis && height > 0 {
+		out[height-1] = "…"
+	}
+	return out
+}
+
+func padLines(lines []string, height int) []string {
+	if height <= 0 {
+		return []string{}
+	}
+	out := append([]string{}, lines...)
+	if len(out) > height {
+		out = out[:height]
+	}
+	for len(out) < height {
+		out = append(out, "")
+	}
+	return out
 }

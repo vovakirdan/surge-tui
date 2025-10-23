@@ -8,6 +8,13 @@ import (
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	if a.quitDialog != nil && a.quitDialog.Visible {
+		if cmd := a.quitDialog.Update(msg); cmd != nil {
+			return a, cmd
+		}
+		return a, nil
+	}
+
 	// Сначала пытаемся найти команду через реестр
 	if cmd := a.commands.Resolve(key, a.currentScreen); cmd != nil {
 		if cmd.Enabled == nil || cmd.Enabled(a) {
@@ -18,7 +25,7 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+c", "ctrl+q":
-		return a.handleQuit()
+		return a, a.requestQuit()
 	case "ctrl+p":
 		return a, a.router.SwitchTo(CommandPaletteScreen)
 	case "f1":
@@ -137,12 +144,17 @@ func (a *App) handleError(msg ErrorMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// handleQuit обрабатывает выход из приложения
-func (a *App) handleQuit() (tea.Model, tea.Cmd) {
-	// Проверяем несохраненные файлы
-	if len(a.unsavedFiles) > 0 {
-		// TODO: показать диалог подтверждения
+func (a *App) requestQuit() tea.Cmd {
+	if a.quitDialog == nil {
+		return tea.Quit
+	}
+	if a.quitDialog.Visible {
+		return nil
 	}
 
-	return a, tea.Quit
+	ch := a.quitDialog.Show()
+	return func() tea.Msg {
+		confirmed := <-ch
+		return quitConfirmedMsg{confirmed: confirmed}
+	}
 }

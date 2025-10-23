@@ -404,12 +404,7 @@ func (ds *DiagnosticsScreen) listHeight() int {
 	if h <= 0 {
 		return 0
 	}
-	detail := 6
-	header := 5
-	height := h - detail - header
-	if height < 3 {
-		height = 3
-	}
+	height := max(h - ds.headerHeight() - ds.detailHeight() - 2, 3)
 	return height
 }
 
@@ -470,6 +465,14 @@ func sortDiagnostics(entries []DiagnosticEntry) {
 
 func (ds *DiagnosticsScreen) summaryCounts() string {
 	return fmt.Sprintf("Errors: %d  Warnings: %d  Info: %d", ds.errorCount, ds.warningCount, ds.infoCount)
+}
+
+func (ds *DiagnosticsScreen) headerHeight() int {
+	return 5
+}
+
+func (ds *DiagnosticsScreen) detailHeight() int {
+	return 8
 }
 
 // SetProjectPath обновляет путь к проекту для последующих запусков.

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"surge-tui/internal/config"
 	core "surge-tui/internal/core/surge"
+	"surge-tui/internal/ui/components"
 	"surge-tui/internal/ui/screens"
 	"surge-tui/internal/ui/styles"
 )
@@ -49,6 +50,8 @@ type App struct {
 	surgeClient    *core.Client
 	surgeAvailable bool
 	surgeVersion   string
+
+	quitDialog *components.ConfirmDialog
 }
 
 type projectInitCommander interface {
@@ -71,6 +74,12 @@ func New(cfg *config.Config, projectPath string) *App {
 		theme:          styles.NewTheme(cfg.Theme),
 		unsavedFiles:   make(map[string]bool),
 		commands:       NewCommandRegistry(),
+		quitDialog:     components.NewConfirmDialog("Quit surge-tui", "Exit the application? Unsaved changes may be lost."),
+	}
+
+	if app.quitDialog != nil {
+		app.quitDialog.ConfirmText = "Quit"
+		app.quitDialog.CancelText = "Cancel"
 	}
 
 	// Путь к проекту: CLI → конфиг → текущая директория
@@ -178,6 +187,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return a, nil
+	case quitConfirmedMsg:
+		if msg.confirmed {
+			return a, tea.Quit
+		}
+		return a, nil
 	}
 
 	// Передаем сообщение текущему экрану
@@ -203,7 +217,12 @@ func (a *App) View() string {
 	// Добавляем статус-бар
 	statusBar := a.renderStatusBar()
 
-	return fmt.Sprintf("%s\n%s", view, statusBar)
+	content := fmt.Sprintf("%s\n%s", view, statusBar)
+	if a.quitDialog != nil && a.quitDialog.Visible {
+		content = fmt.Sprintf("%s\n%s", content, a.quitDialog.View())
+	}
+
+	return content
 }
 
 // getCurrentScreen возвращает текущий экран
@@ -274,8 +293,9 @@ func (a *App) registerBaseCommands() {
 		a.commands.Register(cmd)
 	}
 
-	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return tea.Quit }, nil)
+	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return a.requestQuit() }, nil)
 	reg("open_settings", "Open Settings", kb["settings"], func(a *App) tea.Cmd { return a.router.SwitchTo(SettingsScreen) }, nil)
+	reg("open_workspace", "Workspace", kb["workspace"], func(a *App) tea.Cmd { return a.router.SwitchTo(ProjectScreen) }, nil)
 	reg("open_diagnostics", "Diagnostics", kb["build"], func(a *App) tea.Cmd { return a.router.SwitchTo(BuildScreen) }, nil)
 	reg("command_palette", "Command Palette", kb["command_palette"], func(a *App) tea.Cmd { return a.router.SwitchTo(CommandPaletteScreen) }, nil)
 	reg("switch_screen", "Next Screen", kb["switch_screen"], func(a *App) tea.Cmd { return a.router.SwitchToNext() }, nil)
@@ -290,6 +310,8 @@ func (a *App) registerBaseCommands() {
 		}
 		return false
 	})
+	reg("help", "Help", kb["help"], func(a *App) tea.Cmd { return a.router.SwitchTo(HelpScreen) }, nil)
+	
 }
 
 func (a *App) rebuildCommandBindings() {
@@ -400,6 +422,10 @@ type SurgeAvailabilityMsg struct {
 type ProjectInitializedMsg struct {
 	Path string
 	Err  error
+}
+
+type quitConfirmedMsg struct {
+	confirmed bool
 }
 
 // checkSurgeAvailability проверяет наличие surge и версию

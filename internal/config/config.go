@@ -84,6 +84,7 @@ func DefaultConfig() *Config {
 			"undo":               "ctrl+z",
 			"redo":               "ctrl+y",
 			"external_editor":    "ctrl+e",
+			"workspace":          "esc",
 			"switch_screen":      "tab",
 			"switch_screen_back": "shift+tab",
 			"init_project":       "ctrl+i",

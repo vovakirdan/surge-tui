@@ -61,6 +61,7 @@ func (c *Client) Diagnose(ctx context.Context, targetPath string, withNotes, wit
 	if withFixes {
 		args = append(args, "--suggest")
 	}
+	args = append(args, "--fullpath")
 	args = append(args, targetPath)
 
 	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
