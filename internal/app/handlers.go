@@ -29,6 +29,14 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.router.SwitchToNext()
 	case "ctrl+i":
 		return a, a.initProject()
+	case "esc":
+		current := a.getCurrentScreen()
+		if handler, ok := current.(escHandler); ok {
+			if handled, cmd := handler.HandleGlobalEsc(); handled {
+				return a, cmd
+			}
+		}
+		return a, a.router.SwitchTo(ProjectScreen)
 	}
 
 	// Если глобальные клавиши не обработаны, передаем экрану

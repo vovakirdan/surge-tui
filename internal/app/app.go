@@ -56,6 +56,10 @@ type projectInitCommander interface {
 	InitProjectInSelectedDir() tea.Cmd
 }
 
+type escHandler interface {
+	HandleGlobalEsc() (bool, tea.Cmd)
+}
+
 // New создает новое приложение
 func New(cfg *config.Config, projectPath string) *App {
 	app := &App{

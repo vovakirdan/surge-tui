@@ -171,6 +171,7 @@ func (ps *ProjectScreenReal) renderProjectInfo() string {
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Controls:"))
 	lines = append(lines, "↑↓ / jk - Navigate")
 	lines = append(lines, "Enter - Open file / expand directory")
+	lines = append(lines, "Alt+Enter - Open editor")
 	lines = append(lines, "Space - Expand/collapse")
 	lines = append(lines, "n - New file")
 	lines = append(lines, "Shift+N - New directory")
@@ -179,7 +180,53 @@ func (ps *ProjectScreenReal) renderProjectInfo() string {
 	lines = append(lines, "h - Toggle hidden files")
 	lines = append(lines, "s - Toggle .sg filter")
 	lines = append(lines, "Ctrl+R - Refresh")
+	lines = append(lines, "Alt+Enter - Open editor")
 	lines = append(lines, "←→ - Switch panels")
 
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Actions:"))
+	lines = append(lines, ps.renderFileActions())
+
 	return strings.Join(lines, "\n")
+}
+
+func (ps *ProjectScreenReal) renderFileActions() string {
+	if ps.fileTree == nil {
+		return "–"
+	}
+	node := ps.fileTree.GetSelected()
+	if node == nil {
+		return "–"
+	}
+
+	var entries []string
+	button := func(label, hint string) string {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8")).Render(fmt.Sprintf("[ %s ]", strings.ToUpper(label))) + " " + hint
+	}
+	buttonDisabled := func(label, hint string) string {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Render(fmt.Sprintf("[ %s ]", strings.ToUpper(label))) + " " + hint
+	}
+
+	if node.IsDir {
+		if ps.isProjectDirectory(node.Path) {
+			entries = append(entries, button("format", "Format project (TODO)"))
+			entries = append(entries, button("build", "Build project (TODO)"))
+			entries = append(entries, button("diagnostic", "Run diagnostics (TODO)"))
+		} else {
+			entries = append(entries, button("init", "Initialize project"))
+			entries = append(entries, buttonDisabled("format", "Project not initialized"))
+			entries = append(entries, buttonDisabled("build", "Project not initialized"))
+			entries = append(entries, buttonDisabled("diagnostic", "Project not initialized"))
+		}
+	} else {
+		entries = append(entries, button("open", "Open in editor (Enter/Alt+Enter)"))
+	}
+
+	return strings.Join(entries, "\n")
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

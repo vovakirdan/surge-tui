@@ -232,6 +232,8 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 			}
 		}
 		return ps, nil
+	case "alt+enter":
+		return ps, ps.openSelectedInEditor()
 	}
 
 	// Навигация в дереве файлов
@@ -300,6 +302,16 @@ func (ps *ProjectScreenReal) openSelectedEntry() tea.Cmd {
 		return nil
 	}
 
+	return func() tea.Msg {
+		return OpenFileMsg{FilePath: selected.Path}
+	}
+}
+
+func (ps *ProjectScreenReal) openSelectedInEditor() tea.Cmd {
+	selected := ps.fileTree.GetSelected()
+	if selected == nil || selected.IsDir {
+		return nil
+	}
 	return func() tea.Msg {
 		return OpenFileMsg{FilePath: selected.Path}
 	}

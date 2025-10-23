@@ -10,6 +10,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"surge-tui/internal/fs"
 )
 
 func (ps *ProjectScreenReal) beginInput(mode projectInputMode, placeholder string) {
@@ -155,4 +157,61 @@ func joinOverlay(base, modal string) string {
 type deleteConfirmedMsg struct {
 	confirmed bool
 	path      string
+}
+
+func (ps *ProjectScreenReal) isProjectDirectory(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(path, "surge.toml"))
+	return err == nil && !info.IsDir()
+}
+
+func (ps *ProjectScreenReal) selectedDirectoryNode() *fs.FileNode {
+	if ps.fileTree == nil {
+		return nil
+	}
+	node := ps.fileTree.GetSelected()
+	if node != nil && node.IsDir {
+		return node
+	}
+	return nil
+}
+
+func (ps *ProjectScreenReal) CanInitProject() bool {
+	node := ps.selectedDirectoryNode()
+	if node == nil {
+		return false
+	}
+	return !ps.isProjectDirectory(node.Path)
+}
+
+func (ps *ProjectScreenReal) InitProjectInSelectedDir() tea.Cmd {
+	node := ps.selectedDirectoryNode()
+	if node == nil {
+		ps.setStatus("Select directory to init")
+		return nil
+	}
+	if ps.isProjectDirectory(node.Path) {
+		ps.setStatus("Already a Surge project")
+		return nil
+	}
+	ps.setStatus("Init project action (TODO)")
+	return nil
+}
+
+func (ps *ProjectScreenReal) HandleGlobalEsc() (bool, tea.Cmd) {
+	if ps.inputMode != projectInputNone {
+		ps.cancelInput()
+		return true, nil
+	}
+	if ps.confirm != nil && ps.confirm.Visible {
+		ps.confirm.Hide()
+		return true, nil
+	}
+	if ps.focusedPanel != FileTreePanel {
+		ps.focusedPanel = FileTreePanel
+		return true, nil
+	}
+	return false, nil
 }
