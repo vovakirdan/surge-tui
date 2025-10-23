@@ -40,9 +40,10 @@ type App struct {
 	commands      *CommandRegistry
 
 	// Глобальное состояние
-	projectPath  string
-	unsavedFiles map[string]bool
-	lastError    error
+	projectPath    string
+	lastOpenedFile string
+	unsavedFiles   map[string]bool
+	lastError      error
 
 	// Surge CLI
 	surgeClient    *core.Client
@@ -58,13 +59,14 @@ type projectInitCommander interface {
 // New создает новое приложение
 func New(cfg *config.Config, projectPath string) *App {
 	app := &App{
-		config:       cfg,
-		projectPath:  projectPath,
-		screens:      make(map[ScreenType]screens.Screen),
-		eventBus:     NewEventBus(),
-		theme:        styles.NewTheme(cfg.Theme),
-		unsavedFiles: make(map[string]bool),
-		commands:     NewCommandRegistry(),
+		config:         cfg,
+		projectPath:    projectPath,
+		lastOpenedFile: "",
+		screens:        make(map[ScreenType]screens.Screen),
+		eventBus:       NewEventBus(),
+		theme:          styles.NewTheme(cfg.Theme),
+		unsavedFiles:   make(map[string]bool),
+		commands:       NewCommandRegistry(),
 	}
 
 	// Путь к проекту: CLI → конфиг → текущая директория
@@ -138,12 +140,47 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Config != nil {
 			*a.config = *msg.Config
 			a.theme = styles.NewTheme(a.config.Theme)
-			a.applyThemeToScreens()
 			a.rebuildCommandBindings()
 		}
 		return a, nil
 	case screens.OpenFileMsg:
-		return a, a.router.SwitchTo(EditorScreen)
+		if msg.FilePath == "" {
+			return a, a.router.SwitchTo(EditorScreen)
+		}
+		a.lastOpenedFile = msg.FilePath
+
+		editor, _ := a.screens[EditorScreen].(*screens.EditorScreen)
+		created := false
+		if editor == nil {
+			editor = screens.NewEditorScreen()
+			a.screens[EditorScreen] = editor
+			created = true
+		}
+
+		var cmds []tea.Cmd
+		if a.theme.Width() > 0 && a.theme.Height() > 0 {
+			if updated, cmd := editor.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()}); updated != nil {
+				if ed, ok := updated.(*screens.EditorScreen); ok {
+					editor = ed
+					a.screens[EditorScreen] = editor
+				}
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+		if created {
+			if init := editor.Init(); init != nil {
+				cmds = append(cmds, init)
+			}
+		}
+
+		if load := editor.OpenFile(a.lastOpenedFile); load != nil {
+			cmds = append(cmds, load)
+		}
+
+		cmds = append(cmds, a.router.SwitchTo(EditorScreen))
+		return a, tea.Batch(cmds...)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err
@@ -218,7 +255,7 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	case ProjectScreen:
 		return screens.NewProjectScreenReal(a.projectPath)
 	case EditorScreen:
-		return screens.NewPlaceholderScreen("Editor")
+		return screens.NewEditorScreen()
 	case BuildScreen:
 		return screens.NewPlaceholderScreen("Build & Diagnostics")
 	case FixModeScreen:
@@ -251,18 +288,6 @@ func (a *App) renderStatusBar() string {
 	}
 	help := "Ctrl+Q Quit • Ctrl+P Commands • F1 Help"
 	return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
-}
-
-func (a *App) applyThemeToScreens() {
-	for screenType, screen := range a.screens {
-		if screen == nil {
-			continue
-		}
-		if themeable, ok := screen.(interface{ SetTheme(*styles.Theme) }); ok {
-			themeable.SetTheme(a.theme)
-			a.screens[screenType] = screen
-		}
-	}
 }
 
 // registerBaseCommands wires global commands from config keybindings.

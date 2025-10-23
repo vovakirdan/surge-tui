@@ -82,7 +82,7 @@ func (ps *ProjectScreenReal) renderFileTree() string {
 	}
 
 	var lines []string
-	maxLines := max(ps.Height() - MaxDisplayLines, 1)
+	maxLines := max(ps.Height()-MaxDisplayLines, 1)
 
 	start := ps.fileTree.Selected
 	if maxLines > ScrollOffset && start > maxLines/ScrollOffset {
@@ -95,14 +95,14 @@ func (ps *ProjectScreenReal) renderFileTree() string {
 	end := start + maxLines
 	if end > len(ps.fileTree.FlatList) {
 		end = len(ps.fileTree.FlatList)
-		start = max(end - maxLines, 0)
+		start = max(end-maxLines, 0)
 	}
 
 	for i := start; i < end; i++ {
 		node := ps.fileTree.FlatList[i]
 		line := node.GetDisplayName()
 
-		maxWidth := max(ps.treeWidth - 6, 1)
+		maxWidth := max(ps.treeWidth-6, 1)
 		if len(line) > maxWidth {
 			line = line[:maxWidth-3] + "..."
 		}
