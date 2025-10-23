@@ -159,14 +159,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var cmds []tea.Cmd
 		if a.theme.Width() > 0 && a.theme.Height() > 0 {
-			if updated, cmd := editor.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()}); updated != nil {
-				if ed, ok := updated.(*screens.EditorScreen); ok {
-					editor = ed
-					a.screens[EditorScreen] = editor
-				}
-				if cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+			updated, cmd := editor.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()})
+			if ed, ok := updated.(*screens.EditorScreen); ok {
+				editor = ed
+				a.screens[EditorScreen] = editor
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 		if created {
@@ -286,7 +285,7 @@ func (a *App) renderStatusBar() string {
 	} else {
 		surge = "Surge: not found"
 	}
-	help := "Ctrl+Q Quit • Ctrl+P Commands • F1 Help"
+	help := "Ctrl+Q Quit • Ctrl+P Commands • Tab Switch Screens"
 	return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
 }
 
