@@ -369,10 +369,19 @@ func (a *App) handleOpenLocation(msg screens.OpenLocationMsg) tea.Cmd {
 
 func (a *App) handleOpenFixMode(msg screens.OpenFixModeMsg) tea.Cmd {
 	var cmds []tea.Cmd
-	if screen, ok := a.screens[FixModeScreen].(*screens.FixModeScreen); ok && screen != nil {
+	screenIface := a.screens[FixModeScreen]
+	if screenIface == nil {
+		screenIface = a.createScreen(FixModeScreen)
+		a.screens[FixModeScreen] = screenIface
+		if init := screenIface.Init(); init != nil {
+			cmds = append(cmds, init)
+		}
+	}
+	if screen, ok := screenIface.(*screens.FixModeScreen); ok && screen != nil {
 		if a.projectPath != "" {
 			screen.SetProjectPath(a.projectPath)
 		}
+		screen.FocusFix(msg.FilePath, msg.FixID)
 	}
 	cmds = append(cmds, a.router.SwitchTo(FixModeScreen))
 	return tea.Batch(cmds...)

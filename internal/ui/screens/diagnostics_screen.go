@@ -52,6 +52,7 @@ type DiagnosticEntry struct {
 	Column   int
 	Notes    []string
 	HasFixes bool
+	FixIDs   []string
 }
 
 type diagnosticsResultMsg struct {
@@ -165,8 +166,12 @@ func (ds *DiagnosticsScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		if !entry.HasFixes {
 			return ds, nil
 		}
+		fixID := ""
+		if len(entry.FixIDs) > 0 {
+			fixID = entry.FixIDs[0]
+		}
 		return ds, func() tea.Msg {
-			return OpenFixModeMsg{FilePath: entry.AbsPath}
+			return OpenFixModeMsg{FilePath: entry.AbsPath, FixID: fixID}
 		}
 	case "n":
 		ds.includeNotes = !ds.includeNotes
@@ -306,6 +311,13 @@ func (ds *DiagnosticsScreen) normalizeResponse(resp *core.DiagResponse) []Diagno
 					if note.Message != "" {
 						entry.Notes = append(entry.Notes, note.Message)
 					}
+				}
+			}
+
+			if len(diag.Fixes) > 0 {
+				entry.FixIDs = make([]string, 0, len(diag.Fixes))
+				for _, fix := range diag.Fixes {
+					entry.FixIDs = append(entry.FixIDs, fix.ID)
 				}
 			}
 

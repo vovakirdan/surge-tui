@@ -109,11 +109,16 @@ func (ps *CommandPaletteScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (ps *CommandPaletteScreen) View() string {
-	if ps.Width() == 0 {
-		return "Command palette loading..."
+	width := ps.Width()
+	if width <= 0 {
+		width = 80
 	}
+	if width < 20 {
+		width = 20
+	}
+	ps.filter.Width = width - 4
 
-	builder := lipgloss.NewStyle().Padding(1)
+	builder := lipgloss.NewStyle().Padding(1).Width(width - 2)
 	var lines []string
 	if len(ps.filtered) == 0 {
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(unselectedColor)).Render("No commands match filter"))
@@ -143,7 +148,7 @@ func (ps *CommandPaletteScreen) View() string {
 
 	list := strings.Join(lines, "\n")
 	content := builder.Render(ps.filter.View() + "\n\n" + list)
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(ps.Width() - 2).Render(content)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(width).Render(content)
 }
 
 func (ps *CommandPaletteScreen) refresh() {
