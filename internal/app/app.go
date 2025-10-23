@@ -158,10 +158,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case screens.OpenLocationMsg:
 		return a, a.handleOpenLocation(msg)
+	case screens.OpenFixModeMsg:
+		return a, a.handleOpenFixMode(msg)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err
 		} else {
+			if msg.Path != "" {
+				a.projectPath = msg.Path
+			}
 			var cmds []tea.Cmd
 			newScreen := a.createScreen(ProjectScreen)
 			// передаем последнюю известную геометрию
@@ -184,6 +189,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(cmds) > 0 {
 				return a, tea.Batch(cmds...)
+			}
+			if fixScreen, ok := a.screens[FixModeScreen].(*screens.FixModeScreen); ok && fixScreen != nil {
+				fixScreen.SetProjectPath(a.projectPath)
 			}
 		}
 		return a, nil
@@ -246,7 +254,7 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	case BuildScreen:
 		return screens.NewDiagnosticsScreen(a.projectPath, a.surgeClient)
 	case FixModeScreen:
-		return screens.NewPlaceholderScreen("Fix Mode")
+		return screens.NewFixModeScreen(a.projectPath, a.surgeClient)
 	case CommandPaletteScreen:
 		return screens.NewCommandPaletteScreen(a.commandFetcher())
 	case SettingsScreen:
@@ -295,6 +303,7 @@ func (a *App) registerBaseCommands() {
 
 	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return a.requestQuit() }, nil)
 	reg("open_settings", "Open Settings", kb["settings"], func(a *App) tea.Cmd { return a.router.SwitchTo(SettingsScreen) }, nil)
+	reg("open_fix_mode", "Fix Mode", kb["fix_mode"], func(a *App) tea.Cmd { return a.router.SwitchTo(FixModeScreen) }, nil)
 	reg("open_workspace", "Workspace", kb["workspace"], func(a *App) tea.Cmd { return a.router.SwitchTo(ProjectScreen) }, nil)
 	reg("open_diagnostics", "Diagnostics", kb["build"], func(a *App) tea.Cmd { return a.router.SwitchTo(BuildScreen) }, nil)
 	reg("command_palette", "Command Palette", kb["command_palette"], func(a *App) tea.Cmd { return a.router.SwitchTo(CommandPaletteScreen) }, nil)
@@ -311,7 +320,7 @@ func (a *App) registerBaseCommands() {
 		return false
 	})
 	reg("help", "Help", kb["help"], func(a *App) tea.Cmd { return a.router.SwitchTo(HelpScreen) }, nil)
-	
+
 }
 
 func (a *App) rebuildCommandBindings() {
@@ -355,6 +364,17 @@ func (a *App) handleOpenLocation(msg screens.OpenLocationMsg) tea.Cmd {
 	}
 
 	cmds = append(cmds, a.router.SwitchTo(ProjectScreen))
+	return tea.Batch(cmds...)
+}
+
+func (a *App) handleOpenFixMode(msg screens.OpenFixModeMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if screen, ok := a.screens[FixModeScreen].(*screens.FixModeScreen); ok && screen != nil {
+		if a.projectPath != "" {
+			screen.SetProjectPath(a.projectPath)
+		}
+	}
+	cmds = append(cmds, a.router.SwitchTo(FixModeScreen))
 	return tea.Batch(cmds...)
 }
 

@@ -6,3 +6,9 @@ type OpenLocationMsg struct {
 	Line     int
 	Column   int
 }
+
+// OpenFixModeMsg просит приложение открыть экран фиксов, опционально сфокусировав фикс.
+type OpenFixModeMsg struct {
+	FilePath string
+	FixID    string
+}

@@ -71,7 +71,7 @@ func NewDiagnosticsScreen(projectPath string, client *core.Client) *DiagnosticsS
 		selected:     0,
 		scroll:       0,
 		includeNotes: true,
-		includeFixes: false,
+		includeFixes: true,
 	}
 }
 
@@ -157,6 +157,17 @@ func (ds *DiagnosticsScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		ds.setSelection(len(ds.diagnostics) - 1)
 	case "enter":
 		return ds, ds.openSelectedLocation()
+	case "f":
+		if len(ds.diagnostics) == 0 {
+			return ds, nil
+		}
+		entry := ds.diagnostics[ds.selected]
+		if !entry.HasFixes {
+			return ds, nil
+		}
+		return ds, func() tea.Msg {
+			return OpenFixModeMsg{FilePath: entry.AbsPath}
+		}
 	case "n":
 		ds.includeNotes = !ds.includeNotes
 		ds.status = fmt.Sprintf("Notes %s", ternary(ds.includeNotes, "enabled", "hidden"))
@@ -175,7 +186,7 @@ func (ds *DiagnosticsScreen) View() string {
 }
 
 func (ds *DiagnosticsScreen) ShortHelp() string {
-	return "F5 Run diag • ↑↓ Select • Enter Open • n Toggle notes"
+	return "F5 Run diag • ↑↓ Select • Enter Open • f Fix mode • n Notes"
 }
 
 func (ds *DiagnosticsScreen) FullHelp() []string {
@@ -187,6 +198,7 @@ func (ds *DiagnosticsScreen) FullHelp() []string {
 		"  ↑/↓ or j/k - Move selection",
 		"  PgUp/PgDn - Scroll page",
 		"  Enter - Open location in workspace",
+		"  f - Open Fix Mode",
 		"  n - Toggle notes visibility",
 		"  Esc - Cancel running diagnostics / back",
 	}...)
@@ -404,7 +416,7 @@ func (ds *DiagnosticsScreen) listHeight() int {
 	if h <= 0 {
 		return 0
 	}
-	height := max(h - ds.headerHeight() - ds.detailHeight() - 2, 3)
+	height := max(h-ds.headerHeight()-ds.detailHeight()-2, 3)
 	return height
 }
 

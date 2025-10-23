@@ -36,6 +36,8 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.router.SwitchToNext()
 	case "ctrl+i":
 		return a, a.initProject()
+	case "ctrl+f":
+		return a, a.router.SwitchTo(FixModeScreen)
 	case "esc":
 		current := a.getCurrentScreen()
 		if handler, ok := current.(escHandler); ok {
