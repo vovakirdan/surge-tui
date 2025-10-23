@@ -28,57 +28,248 @@ func (ps *ProjectScreenReal) renderError() string {
 }
 
 func (ps *ProjectScreenReal) renderFileTreePanel() string {
+	width := ps.treeWidth
+	if width <= 0 {
+		width = ps.Width()
+	}
+	height := max(ps.Height()-2, 3)
+
 	borderColor := InactiveBorderColor
 	if ps.focusedPanel == FileTreePanel {
 		borderColor = ActiveBorderColor
 	}
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(borderColor)).
-		Width(ps.treeWidth-1).
-		Height(ps.Height()-2).
-		Padding(0, 1)
 
 	title := "📁 Files"
 	if ps.focusedPanel == FileTreePanel {
-		title += " (focused)"
+		title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).Render(title + " (focused)")
+	} else {
+		title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(title)
 	}
 
-	subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(ps.getFilterInfo())
-	content := ps.renderFileTree()
-	if status := ps.statusLine(); status != "" {
-		content = fmt.Sprintf("%s\n\n%s", content, lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(status))
-	}
+	filterInfo := lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(ps.getFilterInfo())
+	treeContent := ps.renderFileTree(width)
 
-	return style.Render(fmt.Sprintf("%s\n%s\n\n%s", title, subtitle, content))
-}
+	var builder []string
+	builder = append(builder, title, filterInfo, "", treeContent)
 
-func (ps *ProjectScreenReal) renderStatusPanel() string {
-	borderColor := InactiveBorderColor
-	if ps.focusedPanel == StatusPanel {
-		borderColor = ActiveBorderColor
+	if status := ps.statusLine(); status != "" && (ps.focusedPanel == FileTreePanel || len(ps.tabs) == 0) {
+		builder = append(builder, "", lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(status))
 	}
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
-		Width(ps.statusWidth-1).
-		Height(ps.Height()-2).
+		Width(width).
+		Height(height).
 		Padding(0, 1)
 
-	title := "📊 Project Status"
-	if ps.focusedPanel == StatusPanel {
-		title += " (focused)"
+	return style.Render(strings.Join(builder, "\n"))
+}
+
+func (ps *ProjectScreenReal) renderWorkspacePanel() string {
+	if ps.mainWidth <= 0 {
+		return ""
+	}
+	if len(ps.tabs) == 0 {
+		return ps.renderWorkspaceEmpty()
+	}
+	return ps.renderWorkspaceEditor()
+}
+
+func (ps *ProjectScreenReal) renderWorkspaceEmpty() string {
+	width := ps.mainWidth
+	height := max(ps.Height()-2, 3)
+
+	borderColor := InactiveBorderColor
+	if ps.focusedPanel == EditorPanel {
+		borderColor = ActiveBorderColor
 	}
 
-	content := ps.renderProjectInfo()
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).Render("🛠 Workspace")
+	content := ps.renderProjectInfo(width)
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Width(width).
+		Height(height).
+		Padding(0, 1)
+
 	return style.Render(fmt.Sprintf("%s\n\n%s", title, content))
 }
 
-func (ps *ProjectScreenReal) renderFileTree() string {
+func (ps *ProjectScreenReal) renderWorkspaceEditor() string {
+	width := max(ps.mainWidth, 20)
+	height := max(ps.Height()-2, 3)
+
+	borderColor := InactiveBorderColor
+	if ps.focusedPanel == EditorPanel {
+		borderColor = ActiveBorderColor
+	}
+
+	innerWidth := max(width-2, 10)
+	tabBar := ps.renderTabBar(innerWidth)
+	body := ps.renderEditorBody()
+	status := ps.renderEditorStatus()
+
+	var parts []string
+	if tabBar != "" {
+		parts = append(parts, tabBar)
+	}
+	parts = append(parts, body, status)
+
+	if tab := ps.activeEditorTab(); tab != nil && tab.mode == editorModeCommand {
+		parts = append(parts, ps.renderCommandLine())
+	}
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Width(width).
+		Height(height).
+		Padding(0, 1)
+
+	return style.Render(strings.Join(parts, "\n"))
+}
+
+func (ps *ProjectScreenReal) renderTabBar(width int) string {
+	if len(ps.tabs) == 0 {
+		return ""
+	}
+	if width < 10 {
+		width = 10
+	}
+
+	var rendered []string
+	for i, tab := range ps.tabs {
+		title := tab.name
+		if tab.dirty {
+			title = "*" + title
+		}
+		if lipgloss.Width(title) > width/2 {
+			title = truncateMiddle(title, max(width/2, 8))
+		}
+		if i == ps.activeTab {
+			rendered = append(rendered, ps.tabActiveStyle.Render(title))
+		} else {
+			rendered = append(rendered, ps.tabNormalStyle.Render(title))
+		}
+	}
+
+	line := strings.Join(rendered, " ")
+	return lipgloss.NewStyle().Width(width).Render(line)
+}
+
+func (ps *ProjectScreenReal) renderEditorBody() string {
+	tab := ps.activeEditorTab()
+	if tab == nil {
+		return ""
+	}
+
+	contentWidth := ps.editorContentWidth()
+	contentHeight := ps.editorContentHeight()
+
+	lineNumberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
+	cursorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#7C3AED"))
+
+	start := tab.scroll
+	end := min(start+contentHeight, tab.lineCount())
+
+	var rows []string
+	for idx := start; idx < end; idx++ {
+		line := tab.lines[idx]
+		runes := []rune(line)
+		col := min(tab.cursor.Col, len(runes))
+
+		display := line
+		if idx == tab.cursor.Line {
+			before := string(runes[:col])
+			cursor := " "
+			after := ""
+			if col < len(runes) {
+				cursor = string(runes[col])
+				after = string(runes[col+1:])
+			}
+			display = before + cursorStyle.Render(cursor) + after
+		}
+
+		contentStyle := lipgloss.NewStyle().Width(contentWidth)
+		if idx == tab.cursor.Line {
+			contentStyle = contentStyle.Background(lipgloss.Color("#1F2937"))
+		}
+
+		number := lineNumberStyle.Render(fmt.Sprintf("%5d ", idx+1))
+		row := lipgloss.JoinHorizontal(lipgloss.Left, number, contentStyle.Render(display))
+		rows = append(rows, row)
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left,
+			lineNumberStyle.Render(fmt.Sprintf("%5d ", 1)),
+			lipgloss.NewStyle().Width(contentWidth).Render(""),
+		))
+	}
+
+	body := strings.Join(rows, "\n")
+	bodyStyle := lipgloss.NewStyle().
+		Width(contentWidth + 6).
+		Height(contentHeight)
+
+	return bodyStyle.Render(body)
+}
+
+func (ps *ProjectScreenReal) renderEditorStatus() string {
+	tab := ps.activeEditorTab()
+	if tab == nil {
+		return ""
+	}
+
+	mode := ""
+	switch tab.mode {
+	case editorModeInsert:
+		mode = "-- INSERT --"
+	case editorModeCommand:
+		mode = "-- COMMAND --"
+	default:
+		mode = "-- NORMAL --"
+	}
+
+	dirty := ""
+	if tab.dirty {
+		dirty = "*"
+	}
+
+	position := fmt.Sprintf("L%d C%d", tab.cursor.Line+1, tab.cursor.Col+1)
+	info := fmt.Sprintf("%s %s %s | %s", mode, dirty, tab.name, position)
+
+	if status := ps.statusLine(); status != "" && ps.focusedPanel == EditorPanel {
+		info += "  —  " + status
+	}
+
+	return lipgloss.NewStyle().
+		Width(max(ps.mainWidth-2, 20)).
+		Background(lipgloss.Color("#1E293B")).
+		Foreground(lipgloss.Color("#CBD5F5")).
+		Padding(0, 1).
+		Render(strings.TrimSpace(info))
+}
+
+func (ps *ProjectScreenReal) renderCommandLine() string {
+	return lipgloss.NewStyle().
+		Width(max(ps.mainWidth-2, 20)).
+		Background(lipgloss.Color("#111827")).
+		Foreground(lipgloss.Color("#F8FAFC")).
+		Padding(0, 1).
+		Render(ps.editorCommand.View())
+}
+
+func (ps *ProjectScreenReal) renderFileTree(panelWidth int) string {
 	if ps.fileTree == nil || len(ps.fileTree.FlatList) == 0 {
 		return "No files found"
+	}
+
+	if panelWidth <= 0 {
+		panelWidth = max(ps.treeWidth, 20)
 	}
 
 	var lines []string
@@ -102,9 +293,14 @@ func (ps *ProjectScreenReal) renderFileTree() string {
 		node := ps.fileTree.FlatList[i]
 		line := node.GetDisplayName()
 
-		maxWidth := max(ps.treeWidth-6, 1)
+		maxWidth := max(panelWidth-6, 1)
 		if len(line) > maxWidth {
-			line = line[:maxWidth-3] + "..."
+			runes := []rune(line)
+			if len(runes) > maxWidth {
+				line = string(runes[:maxWidth-3]) + "..."
+			} else {
+				line = line[:maxWidth]
+			}
 		}
 
 		if i == ps.fileTree.Selected {
@@ -143,13 +339,13 @@ func (ps *ProjectScreenReal) getFilterInfo() string {
 	return "Filters: " + strings.Join(filters, ", ")
 }
 
-func (ps *ProjectScreenReal) renderProjectInfo() string {
+func (ps *ProjectScreenReal) renderProjectInfo(width int) string {
 	var lines []string
 
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Path:"))
 	projectPath := ps.projectPath
-	if len(projectPath) > ps.statusWidth-10 {
-		projectPath = "..." + projectPath[len(projectPath)-(ps.statusWidth-13):]
+	if lipgloss.Width(projectPath) > width-10 {
+		projectPath = truncateMiddle(projectPath, max(width-10, 16))
 	}
 	lines = append(lines, projectPath)
 	lines = append(lines, "")
@@ -169,19 +365,16 @@ func (ps *ProjectScreenReal) renderProjectInfo() string {
 	}
 
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Controls:"))
-	lines = append(lines, "↑↓ / jk - Navigate")
-	lines = append(lines, "Enter - Open file / expand directory")
-	lines = append(lines, "Alt+Enter - Open editor")
-	lines = append(lines, "Space - Expand/collapse")
-	lines = append(lines, "n - New file")
-	lines = append(lines, "Shift+N - New directory")
-	lines = append(lines, "r - Rename")
-	lines = append(lines, "Delete - Remove")
-	lines = append(lines, "h - Toggle hidden files")
-	lines = append(lines, "s - Toggle .sg filter")
-	lines = append(lines, "Ctrl+R - Refresh")
-	lines = append(lines, "Alt+Enter - Open editor")
-	lines = append(lines, "←→ - Switch panels")
+	lines = append(lines, "↑↓ / j k - Navigate tree")
+	lines = append(lines, "Enter - Open file tab / expand dir")
+	lines = append(lines, "Space - Expand/collapse directory")
+	lines = append(lines, "n / Shift+N - New file / directory")
+	lines = append(lines, "r - Rename • Delete - Remove")
+	lines = append(lines, "h - Toggle hidden • s - Toggle .sg")
+	lines = append(lines, "Ctrl+R - Refresh tree listing")
+	lines = append(lines, "Ctrl+→ focus editor • Ctrl+← focus tree")
+	lines = append(lines, "Alt+←/→ switch tab • Alt+Shift+←/→ reorder")
+	lines = append(lines, ":w save • :q quit tab • yy/dd/p line copy/cut/paste")
 
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Actions:"))
 	lines = append(lines, ps.renderFileActions())
@@ -218,7 +411,7 @@ func (ps *ProjectScreenReal) renderFileActions() string {
 			entries = append(entries, buttonDisabled("diagnostic", "Project not initialized"))
 		}
 	} else {
-		entries = append(entries, button("open", "Open in editor (Enter/Alt+Enter)"))
+		entries = append(entries, button("open", "Open in editor (Enter)"))
 	}
 
 	return strings.Join(entries, "\n")
@@ -229,4 +422,30 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func truncateMiddle(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= limit {
+		return s
+	}
+	if limit <= 3 {
+		return s[:limit]
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return string(runes[:limit])
+	}
+	left := (limit - 3) / 2
+	right := limit - 3 - left
+	return string(runes[:left]) + "..." + string(runes[len(runes)-right:])
 }

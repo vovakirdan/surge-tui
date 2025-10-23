@@ -147,43 +147,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.rebuildCommandBindings()
 		}
 		return a, nil
-	case screens.OpenFileMsg:
-		if msg.FilePath == "" {
-			return a, a.router.SwitchTo(EditorScreen)
-		}
-		a.lastOpenedFile = msg.FilePath
-
-		editor, _ := a.screens[EditorScreen].(*screens.EditorScreen)
-		created := false
-		if editor == nil {
-			editor = screens.NewEditorScreen()
-			a.screens[EditorScreen] = editor
-			created = true
-		}
-
-		var cmds []tea.Cmd
-		if a.theme.Width() > 0 && a.theme.Height() > 0 {
-			updated, cmd := editor.Update(tea.WindowSizeMsg{Width: a.theme.Width(), Height: a.theme.Height()})
-			if ed, ok := updated.(*screens.EditorScreen); ok {
-				editor = ed
-				a.screens[EditorScreen] = editor
-			}
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		if created {
-			if init := editor.Init(); init != nil {
-				cmds = append(cmds, init)
-			}
-		}
-
-		if load := editor.OpenFile(a.lastOpenedFile); load != nil {
-			cmds = append(cmds, load)
-		}
-
-		cmds = append(cmds, a.router.SwitchTo(EditorScreen))
-		return a, tea.Batch(cmds...)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err

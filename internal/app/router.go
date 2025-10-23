@@ -61,7 +61,6 @@ func (r *ScreenRouter) GoBack() tea.Cmd {
 func (r *ScreenRouter) getNextScreen(current ScreenType) ScreenType {
 	screens := []ScreenType{
 		ProjectScreen,
-		EditorScreen,
 		BuildScreen,
 		FixModeScreen,
 		SettingsScreen,
@@ -81,7 +80,6 @@ func (r *ScreenRouter) getNextScreen(current ScreenType) ScreenType {
 func (r *ScreenRouter) getPreviousScreen(current ScreenType) ScreenType {
 	screens := []ScreenType{
 		ProjectScreen,
-		EditorScreen,
 		BuildScreen,
 		FixModeScreen,
 		SettingsScreen,

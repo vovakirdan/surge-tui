@@ -15,8 +15,9 @@ import (
 
 const (
 	// UI layout constants
-	TreePanelRatio   = 3.0 / 5.0 // 60% для дерева файлов
-	StatusPanelRatio = 2.0 / 5.0 // 40% для статуса
+	TreeExpandedRatio  = 0.42 // Доля ширины, когда дерево в фокусе
+	TreeCollapsedWidth = 26   // Минимальная ширина дерева, когда фокус в редакторе
+	TreeMinWidth       = 18   // Минимально допустимая ширина дерева
 
 	// Display constants
 	MaxDisplayLines = 6 // Резерв строк для заголовков и рамок
@@ -35,7 +36,7 @@ type PanelType int
 
 const (
 	FileTreePanel PanelType = iota
-	StatusPanel
+	EditorPanel
 )
 
 type projectInputMode int
@@ -65,10 +66,21 @@ type ProjectScreenReal struct {
 	statusMsg    string
 	statusAt     time.Time
 	confirm      *components.ConfirmDialog
+	closeDialog  *components.ConfirmDialog
 
 	// Размеры панелей
-	treeWidth   int
-	statusWidth int
+	treeWidth int
+	mainWidth int
+
+	// Редактор и вкладки
+	tabs           []*editorTab
+	activeTab      int
+	yankBuffer     string
+	tabActiveStyle lipgloss.Style
+	tabNormalStyle lipgloss.Style
+
+	// Командная строка редактора
+	editorCommand textinput.Model
 }
 
 // ProjectStatus информация о статусе проекта
@@ -94,13 +106,24 @@ func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
 	ti.CharLimit = 256
 	ti.Width = 32
 
+	cmdInput := textinput.New()
+	cmdInput.Prompt = ":"
+	cmdInput.CharLimit = 256
+	cmdInput.Width = 40
+	cmdInput.Blur()
+
 	return &ProjectScreenReal{
-		BaseScreen:   NewBaseScreen("Project"),
-		projectPath:  projectPath,
-		focusedPanel: FileTreePanel,
-		loading:      true,
-		input:        ti,
-		confirm:      components.NewConfirmDialog("Delete", "Delete selected entry?"),
+		BaseScreen:     NewBaseScreen("Project"),
+		projectPath:    projectPath,
+		focusedPanel:   FileTreePanel,
+		loading:        true,
+		input:          ti,
+		confirm:        components.NewConfirmDialog("Delete", "Delete selected entry?"),
+		closeDialog:    components.NewConfirmDialog("Close Tab", "Unsaved changes. Close anyway?"),
+		editorCommand:  cmdInput,
+		activeTab:      -1,
+		tabActiveStyle: lipgloss.NewStyle().Background(lipgloss.Color("#7C3AED")).Foreground(lipgloss.Color("#FFFFFF")).Padding(0, 1).Bold(true),
+		tabNormalStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5F5")).Padding(0, 1),
 	}
 }
 
@@ -111,6 +134,15 @@ func (ps *ProjectScreenReal) Init() tea.Cmd {
 
 // Update обрабатывает сообщения
 func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
+	if ps.closeDialog != nil && ps.closeDialog.Visible {
+		if cmd := ps.closeDialog.Update(msg); cmd != nil {
+			return ps, cmd
+		}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return ps, nil
+		}
+	}
+
 	if ps.confirm != nil && ps.confirm.Visible {
 		if cmd := ps.confirm.Update(msg); cmd != nil {
 			return ps, cmd
@@ -125,6 +157,9 @@ func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if ps.inputMode != projectInputNone {
 			return ps.handleInputKey(msg)
 		}
+		if ps.focusedPanel == EditorPanel && len(ps.tabs) > 0 {
+			return ps.handleEditorKey(msg)
+		}
 		return ps.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
 		ps.handleResize(msg)
@@ -134,10 +169,16 @@ func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		ps.loading = false
 		ps.fileTree = msg.tree
 		ps.updateStats()
+		ps.recalculateLayout()
 		return ps, nil
 	case fileTreeErrorMsg:
 		ps.loading = false
 		ps.err = msg.err
+		return ps, nil
+	case closeTabConfirmedMsg:
+		if msg.confirmed {
+			ps.forceCloseTab(msg.index)
+		}
 		return ps, nil
 	case deleteConfirmedMsg:
 		if msg.confirmed {
@@ -170,8 +211,11 @@ func (ps *ProjectScreenReal) View() string {
 
 	// Разделяем экран на левую и правую панели
 	leftPanel := ps.renderFileTreePanel()
-	rightPanel := ps.renderStatusPanel()
-	base := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	base := leftPanel
+	if ps.mainWidth > 0 {
+		rightPanel := ps.renderWorkspacePanel()
+		base = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	}
 
 	if ps.inputMode != projectInputNone {
 		modal := ps.renderInputModal()
@@ -180,6 +224,12 @@ func (ps *ProjectScreenReal) View() string {
 
 	if ps.confirm != nil {
 		if view := ps.confirm.View(); view != "" {
+			return joinOverlay(base, view)
+		}
+	}
+
+	if ps.closeDialog != nil {
+		if view := ps.closeDialog.View(); view != "" {
 			return joinOverlay(base, view)
 		}
 	}
@@ -195,6 +245,16 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 	}
 
 	switch msg.String() {
+	case "ctrl+left":
+		ps.focusedPanel = FileTreePanel
+		ps.recalculateLayout()
+		return ps, nil
+	case "ctrl+right":
+		if len(ps.tabs) > 0 {
+			ps.focusedPanel = EditorPanel
+			ps.recalculateLayout()
+		}
+		return ps, nil
 	case "left", "right":
 		ps.switchPanel()
 		return ps, nil
@@ -203,13 +263,25 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 	case "h":
 		if ps.fileTree != nil {
 			ps.fileTree.SetShowHidden(!ps.fileTree.ShowHidden)
+			ps.updateStats()
+			if ps.fileTree.ShowHidden {
+				ps.setStatus("Hidden entries visible")
+			} else {
+				ps.setStatus("Hidden entries hidden")
+			}
 		}
-		return ps, ps.loadFileTree()
+		return ps, nil
 	case "s":
 		if ps.fileTree != nil {
 			ps.fileTree.SetFilterSurge(!ps.fileTree.FilterSurge)
+			ps.updateStats()
+			if ps.fileTree.FilterSurge {
+				ps.setStatus("Filter: .sg only")
+			} else {
+				ps.setStatus("Filter: all files")
+			}
 		}
-		return ps, ps.loadFileTree()
+		return ps, nil
 	case "n":
 		ps.beginInput(projectInputNewFile, "file name")
 		return ps, nil
@@ -260,18 +332,69 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 // handleResize обрабатывает изменение размера
 func (ps *ProjectScreenReal) handleResize(msg tea.WindowSizeMsg) {
 	ps.SetSize(msg.Width, msg.Height-1) // -1 для статус-бара приложения
-
-	// Распределяем ширину панелей
-	ps.treeWidth = int(float64(ps.Width()) * TreePanelRatio)
-	ps.statusWidth = ps.Width() - ps.treeWidth
+	ps.recalculateLayout()
 }
 
 // switchPanel переключает фокус между панелями
 func (ps *ProjectScreenReal) switchPanel() {
 	if ps.focusedPanel == FileTreePanel {
-		ps.focusedPanel = StatusPanel
+		if len(ps.tabs) > 0 {
+			ps.focusedPanel = EditorPanel
+		}
 	} else {
 		ps.focusedPanel = FileTreePanel
+	}
+	ps.recalculateLayout()
+}
+
+func (ps *ProjectScreenReal) recalculateLayout() {
+	width := ps.Width()
+	if width <= 0 {
+		ps.treeWidth = 0
+		ps.mainWidth = 0
+		return
+	}
+
+	if len(ps.tabs) == 0 {
+		ps.treeWidth = width
+		ps.mainWidth = 0
+		return
+	}
+
+	expanded := int(float64(width) * TreeExpandedRatio)
+	if expanded < TreeMinWidth {
+		expanded = TreeMinWidth
+	}
+	if expanded > width-TreeMinWidth {
+		expanded = width - TreeMinWidth
+	}
+
+	collapsed := TreeCollapsedWidth
+	if collapsed < TreeMinWidth {
+		collapsed = TreeMinWidth
+	}
+	if collapsed > width-TreeMinWidth {
+		collapsed = max(width-TreeMinWidth, TreeMinWidth)
+	}
+
+	treeWidth := collapsed
+	if ps.focusedPanel == FileTreePanel {
+		treeWidth = expanded
+	}
+	if treeWidth < TreeMinWidth {
+		treeWidth = TreeMinWidth
+	}
+	if treeWidth > width-TreeMinWidth {
+		treeWidth = width - TreeMinWidth
+		if treeWidth < TreeMinWidth {
+			treeWidth = max(TreeMinWidth, width/2)
+		}
+	}
+
+	ps.treeWidth = treeWidth
+	ps.mainWidth = width - treeWidth
+	if ps.mainWidth < 0 {
+		ps.mainWidth = 0
 	}
 }
 
@@ -302,9 +425,8 @@ func (ps *ProjectScreenReal) openSelectedEntry() tea.Cmd {
 		return nil
 	}
 
-	return func() tea.Msg {
-		return OpenFileMsg{FilePath: selected.Path}
-	}
+	ps.openFileTab(selected.Path)
+	return nil
 }
 
 func (ps *ProjectScreenReal) openSelectedInEditor() tea.Cmd {
@@ -312,9 +434,8 @@ func (ps *ProjectScreenReal) openSelectedInEditor() tea.Cmd {
 	if selected == nil || selected.IsDir {
 		return nil
 	}
-	return func() tea.Msg {
-		return OpenFileMsg{FilePath: selected.Path}
-	}
+	ps.openFileTab(selected.Path)
+	return nil
 }
 
 // updateStats обновляет статистику проекта
@@ -355,7 +476,7 @@ func (ps *ProjectScreenReal) Title() string {
 
 // ShortHelp возвращает краткую справку
 func (ps *ProjectScreenReal) ShortHelp() string {
-	return "↑↓ Navigate • Enter Open • Space Expand • n New • r Rename • Del Delete"
+	return "↑↓ Navigate • Enter Open • Space Expand • Ctrl+→ Editor • Alt+←/→ Tabs"
 }
 
 // FullHelp возвращает полную справку
@@ -365,7 +486,7 @@ func (ps *ProjectScreenReal) FullHelp() []string {
 		"",
 		"Project Screen:",
 		"  ↑/↓ or j/k - Navigate files",
-		"  ←/→ - Switch between tree and status panels",
+		"  Ctrl+→ - Focus editor • Ctrl+← - Focus tree",
 		"  Enter - Open selected file / expand directory",
 		"  Space - Expand/collapse directory",
 		"  n - New file",
@@ -375,6 +496,10 @@ func (ps *ProjectScreenReal) FullHelp() []string {
 		"  h - Toggle hidden files display",
 		"  s - Toggle .sg files only filter",
 		"  Ctrl+R - Refresh file tree",
+		"  Alt+←/→ - Switch editor tab • Alt+Shift+←/→ - Reorder tabs",
+		"  yy / dd / p - Copy, cut, paste current line",
+		"  :w save • :q quit tab • :q! force quit",
+		"  i / Esc - Enter/exit insert mode (Vim style)",
 	}...)
 	return help
 }
@@ -387,4 +512,9 @@ type fileTreeLoadedMsg struct {
 
 type fileTreeErrorMsg struct {
 	err error
+}
+
+type closeTabConfirmedMsg struct {
+	index     int
+	confirmed bool
 }
