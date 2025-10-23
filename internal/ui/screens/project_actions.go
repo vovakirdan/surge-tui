@@ -209,8 +209,16 @@ func (ps *ProjectScreenReal) HandleGlobalEsc() (bool, tea.Cmd) {
 		ps.confirm.Hide()
 		return true, nil
 	}
+	if ps.closeDialog != nil && ps.closeDialog.Visible {
+		ps.closeDialog.Hide()
+		return true, nil
+	}
+	if ps.handleEditorEscape() {
+		return true, nil
+	}
 	if ps.focusedPanel != FileTreePanel {
 		ps.focusedPanel = FileTreePanel
+		ps.recalculateLayout()
 		return true, nil
 	}
 	return false, nil

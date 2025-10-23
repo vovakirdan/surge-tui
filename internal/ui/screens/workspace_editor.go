@@ -259,6 +259,30 @@ func (t *editorTab) pasteLine(content string) {
 	t.dirty = true
 }
 
+func (t *editorTab) setCursorPosition(line, column int) {
+	if len(t.lines) == 0 {
+		t.lines = []string{""}
+	}
+	if line < 1 {
+		line = 1
+	}
+	if line > len(t.lines) {
+		line = len(t.lines)
+	}
+	t.cursor.Line = line - 1
+
+	if column < 1 {
+		column = 1
+	}
+	runes := []rune(t.lines[t.cursor.Line])
+	maxCol := len(runes)
+	if column-1 > maxCol {
+		column = maxCol + 1
+	}
+	t.cursor.Col = column - 1
+	t.clampCursor()
+}
+
 func (t *editorTab) save() error {
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(t.path); err == nil {

@@ -44,22 +44,22 @@ func (ps *ProjectScreenReal) setActiveTab(index int) {
 	ps.recalculateLayout()
 }
 
-func (ps *ProjectScreenReal) openFileTab(path string) {
+func (ps *ProjectScreenReal) openFileTab(path string) *editorTab {
 	if path == "" {
-		return
+		return nil
 	}
 
 	if idx := ps.findTabIndex(path); idx >= 0 {
 		ps.setActiveTab(idx)
 		ps.focusedPanel = EditorPanel
 		ps.recalculateLayout()
-		return
+		return ps.activeEditorTab()
 	}
 
 	tab, err := newEditorTab(path)
 	if err != nil {
 		ps.setStatus(fmt.Sprintf("Failed to open file: %v", err))
-		return
+		return nil
 	}
 
 	ps.tabs = append(ps.tabs, tab)
@@ -68,6 +68,35 @@ func (ps *ProjectScreenReal) openFileTab(path string) {
 	ps.ensureCursorVisible(tab)
 	ps.recalculateLayout()
 	ps.setStatus("Opened " + tab.name)
+	return tab
+}
+
+// OpenLocation открывает файл и позиционирует курсор на указанной строке и колонке.
+func (ps *ProjectScreenReal) OpenLocation(path string, line, column int) {
+	if path == "" {
+		return
+	}
+	abs := path
+	if !filepath.IsAbs(abs) && ps.projectPath != "" {
+		abs = filepath.Join(ps.projectPath, path)
+	}
+	tab := ps.openFileTab(abs)
+	if tab == nil {
+		return
+	}
+	if line <= 0 {
+		line = 1
+	}
+	if column <= 0 {
+		column = 1
+	}
+	tab.setCursorPosition(line, column)
+	tab.mode = editorModeNormal
+	tab.clearPending()
+	ps.ensureCursorVisible(tab)
+	ps.focusedPanel = EditorPanel
+	ps.recalculateLayout()
+	ps.setStatus(fmt.Sprintf("Jumped to %s:%d:%d", filepath.Base(tab.path), line, column))
 }
 
 func (ps *ProjectScreenReal) activateAdjacentTab(offset int) {
@@ -181,6 +210,37 @@ func (ps *ProjectScreenReal) ensureCursorVisible(tab *editorTab) {
 	}
 }
 
+func (ps *ProjectScreenReal) handleEditorEscape() bool {
+	tab := ps.activeEditorTab()
+	if tab == nil {
+		return false
+	}
+
+	switch tab.mode {
+	case editorModeInsert:
+		if tab.cursor.Col > 0 {
+			tab.cursor.Col--
+		}
+		tab.mode = editorModeNormal
+		tab.clearPending()
+		ps.editorCommand.Blur()
+		ps.setStatus("-- NORMAL --")
+		return true
+	case editorModeCommand:
+		tab.mode = editorModeNormal
+		ps.editorCommand.Blur()
+		ps.setStatus("-- NORMAL --")
+		return true
+	default:
+		if tab.pending != "" {
+			tab.clearPending()
+			return true
+		}
+	}
+
+	return false
+}
+
 func (ps *ProjectScreenReal) editorContentHeight() int {
 	// Панель имеет рамку (2 строки) + строка табов + статус
 	content := ps.Height() - 5
@@ -248,13 +308,7 @@ func (ps *ProjectScreenReal) handleEditorKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 func (ps *ProjectScreenReal) handleInsertModeKey(tab *editorTab, msg tea.KeyMsg) (Screen, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		if tab.cursor.Col > 0 {
-			tab.cursor.Col--
-		}
-		tab.mode = editorModeNormal
-		tab.clearPending()
-		ps.editorCommand.Blur()
-		ps.setStatus("-- NORMAL --")
+		ps.handleEditorEscape()
 		return ps, nil
 	case tea.KeyEnter:
 		tab.insertNewLine()
@@ -266,6 +320,10 @@ func (ps *ProjectScreenReal) handleInsertModeKey(tab *editorTab, msg tea.KeyMsg)
 		return ps, nil
 	case tea.KeyDelete:
 		tab.deleteForward()
+		ps.ensureCursorVisible(tab)
+		return ps, nil
+	case tea.KeySpace:
+		tab.insertString(" ")
 		ps.ensureCursorVisible(tab)
 		return ps, nil
 	case tea.KeyRunes:
@@ -283,6 +341,12 @@ func (ps *ProjectScreenReal) handleInsertModeKey(tab *editorTab, msg tea.KeyMsg)
 		ps.saveActiveTab()
 	case "tab":
 		tab.insertString("\t")
+		ps.ensureCursorVisible(tab)
+	case "space":
+		tab.insertString(" ")
+		ps.ensureCursorVisible(tab)
+	case "backspace", "ctrl+h":
+		tab.deleteBackward()
 		ps.ensureCursorVisible(tab)
 	case "left":
 		tab.moveCursor(0, -1)
@@ -312,9 +376,7 @@ func (ps *ProjectScreenReal) handleInsertModeKey(tab *editorTab, msg tea.KeyMsg)
 func (ps *ProjectScreenReal) handleCommandModeKey(tab *editorTab, msg tea.KeyMsg) (Screen, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		tab.mode = editorModeNormal
-		ps.editorCommand.Blur()
-		ps.setStatus("-- NORMAL --")
+		ps.handleEditorEscape()
 		return ps, nil
 	case tea.KeyEnter:
 		command := strings.TrimSpace(ps.editorCommand.Value())

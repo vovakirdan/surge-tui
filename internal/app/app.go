@@ -147,6 +147,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.rebuildCommandBindings()
 		}
 		return a, nil
+	case screens.OpenLocationMsg:
+		return a, a.handleOpenLocation(msg)
 	case ProjectInitializedMsg:
 		if msg.Err != nil {
 			a.lastError = msg.Err
@@ -223,7 +225,7 @@ func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	case EditorScreen:
 		return screens.NewEditorScreen()
 	case BuildScreen:
-		return screens.NewPlaceholderScreen("Build & Diagnostics")
+		return screens.NewDiagnosticsScreen(a.projectPath, a.surgeClient)
 	case FixModeScreen:
 		return screens.NewPlaceholderScreen("Fix Mode")
 	case CommandPaletteScreen:
@@ -274,6 +276,7 @@ func (a *App) registerBaseCommands() {
 
 	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return tea.Quit }, nil)
 	reg("open_settings", "Open Settings", kb["settings"], func(a *App) tea.Cmd { return a.router.SwitchTo(SettingsScreen) }, nil)
+	reg("open_diagnostics", "Diagnostics", kb["build"], func(a *App) tea.Cmd { return a.router.SwitchTo(BuildScreen) }, nil)
 	reg("command_palette", "Command Palette", kb["command_palette"], func(a *App) tea.Cmd { return a.router.SwitchTo(CommandPaletteScreen) }, nil)
 	reg("switch_screen", "Next Screen", kb["switch_screen"], func(a *App) tea.Cmd { return a.router.SwitchToNext() }, nil)
 	reg("switch_screen_back", "Prev Screen", kb["switch_screen_back"], func(a *App) tea.Cmd { return a.router.SwitchToPrevious() }, nil)
@@ -318,6 +321,19 @@ func (a *App) commandFetcher() screens.CommandFetcher {
 		}
 		return entries
 	}
+}
+
+func (a *App) handleOpenLocation(msg screens.OpenLocationMsg) tea.Cmd {
+	var cmds []tea.Cmd
+
+	if msg.FilePath != "" {
+		if screen, ok := a.screens[ProjectScreen].(*screens.ProjectScreenReal); ok && screen != nil {
+			screen.OpenLocation(msg.FilePath, msg.Line, msg.Column)
+		}
+	}
+
+	cmds = append(cmds, a.router.SwitchTo(ProjectScreen))
+	return tea.Batch(cmds...)
 }
 
 func (a *App) screenTitle(screen ScreenType) string {
