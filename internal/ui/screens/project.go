@@ -39,14 +39,6 @@ const (
 	EditorPanel
 )
 
-type projectInputMode int
-
-const (
-	projectInputNone projectInputMode = iota
-	projectInputNewFile
-	projectInputNewDir
-	projectInputRename
-)
 
 // ProjectScreenReal настоящий экран проекта с деревом файлов
 type ProjectScreenReal struct {
@@ -59,14 +51,15 @@ type ProjectScreenReal struct {
 	err         error
 
 	// UI состояние
-	focusedPanel PanelType
-	statusInfo   ProjectStatus
-	inputMode    projectInputMode
-	input        textinput.Model
-	statusMsg    string
-	statusAt     time.Time
-	confirm      *components.ConfirmDialog
-	closeDialog  *components.ConfirmDialog
+	focusedPanel  PanelType
+	statusInfo    ProjectStatus
+	statusMsg     string
+	statusAt      time.Time
+	confirm       *components.ConfirmDialog
+	closeDialog   *components.ConfirmDialog
+	newFileDialog *components.InputDialog
+	newDirDialog  *components.InputDialog
+	renameDialog  *components.InputDialog
 
 	// Размеры панелей
 	treeWidth int
@@ -101,10 +94,6 @@ func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
 		projectPath = pwd
 	}
 
-	ti := textinput.New()
-	ti.Placeholder = "name"
-	ti.CharLimit = 256
-	ti.Width = 32
 
 	cmdInput := textinput.New()
 	cmdInput.Prompt = ":"
@@ -117,9 +106,11 @@ func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
 		projectPath:    projectPath,
 		focusedPanel:   FileTreePanel,
 		loading:        true,
-		input:          ti,
 		confirm:        components.NewConfirmDialog("Delete", "Delete selected entry?"),
 		closeDialog:    components.NewConfirmDialog("Close Tab", "Unsaved changes. Close anyway?"),
+		newFileDialog:  components.NewInputDialog("New File", "Enter file name"),
+		newDirDialog:   components.NewInputDialog("New Directory", "Enter directory name"),
+		renameDialog:   components.NewInputDialog("Rename", "Enter new name"),
 		editorCommand:  cmdInput,
 		activeTab:      -1,
 		tabActiveStyle: lipgloss.NewStyle().Background(lipgloss.Color("#7C3AED")).Foreground(lipgloss.Color("#FFFFFF")).Padding(0, 1).Bold(true),
@@ -152,18 +143,41 @@ func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		}
 	}
 
+	if ps.newFileDialog != nil && ps.newFileDialog.Visible {
+		if cmd := ps.newFileDialog.Update(msg); cmd != nil {
+			return ps, cmd
+		}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return ps, nil
+		}
+	}
+
+	if ps.newDirDialog != nil && ps.newDirDialog.Visible {
+		if cmd := ps.newDirDialog.Update(msg); cmd != nil {
+			return ps, cmd
+		}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return ps, nil
+		}
+	}
+
+	if ps.renameDialog != nil && ps.renameDialog.Visible {
+		if cmd := ps.renameDialog.Update(msg); cmd != nil {
+			return ps, cmd
+		}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return ps, nil
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if ps.inputMode != projectInputNone {
-			return ps.handleInputKey(msg)
-		}
 		if ps.focusedPanel == EditorPanel && len(ps.tabs) > 0 {
 			return ps.handleEditorKey(msg)
 		}
 		return ps.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
 		ps.handleResize(msg)
-		ps.input.Width = ps.treeWidth - 4
 		return ps, nil
 	case fileTreeLoadedMsg:
 		ps.loading = false
@@ -186,6 +200,36 @@ func (ps *ProjectScreenReal) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				ps.setStatus(err.Error())
 			} else {
 				ps.setStatus("Deleted")
+			}
+			return ps, ps.loadFileTree()
+		}
+		return ps, nil
+	case newFileConfirmedMsg:
+		if msg.value != nil && *msg.value != "" {
+			if err := ps.createEntry(*msg.value, false); err != nil {
+				ps.setStatus(err.Error())
+			} else {
+				ps.setStatus("File created")
+			}
+			return ps, ps.loadFileTree()
+		}
+		return ps, nil
+	case newDirConfirmedMsg:
+		if msg.value != nil && *msg.value != "" {
+			if err := ps.createEntry(*msg.value, true); err != nil {
+				ps.setStatus(err.Error())
+			} else {
+				ps.setStatus("Directory created")
+			}
+			return ps, ps.loadFileTree()
+		}
+		return ps, nil
+	case renameConfirmedMsg:
+		if msg.value != nil && *msg.value != "" {
+			if err := ps.renameEntry(*msg.value); err != nil {
+				ps.setStatus(err.Error())
+			} else {
+				ps.setStatus("Renamed")
 			}
 			return ps, ps.loadFileTree()
 		}
@@ -217,11 +261,6 @@ func (ps *ProjectScreenReal) View() string {
 		base = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 	}
 
-	if ps.inputMode != projectInputNone {
-		modal := ps.renderInputModal()
-		return joinOverlay(base, modal)
-	}
-
 	if ps.confirm != nil {
 		if view := ps.confirm.View(); view != "" {
 			return joinOverlay(base, view)
@@ -230,6 +269,24 @@ func (ps *ProjectScreenReal) View() string {
 
 	if ps.closeDialog != nil {
 		if view := ps.closeDialog.View(); view != "" {
+			return joinOverlay(base, view)
+		}
+	}
+
+	if ps.newFileDialog != nil {
+		if view := ps.newFileDialog.View(); view != "" {
+			return joinOverlay(base, view)
+		}
+	}
+
+	if ps.newDirDialog != nil {
+		if view := ps.newDirDialog.View(); view != "" {
+			return joinOverlay(base, view)
+		}
+	}
+
+	if ps.renameDialog != nil {
+		if view := ps.renameDialog.View(); view != "" {
 			return joinOverlay(base, view)
 		}
 	}
@@ -283,14 +340,30 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		}
 		return ps, nil
 	case "n":
-		ps.beginInput(projectInputNewFile, "file name")
+		if ps.newFileDialog != nil {
+			ch := ps.newFileDialog.Show()
+			return ps, func() tea.Msg {
+				value := <-ch
+				return newFileConfirmedMsg{value: value}
+			}
+		}
 		return ps, nil
 	case "N":
-		ps.beginInput(projectInputNewDir, "directory name")
+		if ps.newDirDialog != nil {
+			ch := ps.newDirDialog.Show()
+			return ps, func() tea.Msg {
+				value := <-ch
+				return newDirConfirmedMsg{value: value}
+			}
+		}
 		return ps, nil
 	case "r":
-		if node := ps.fileTree.GetSelected(); node != nil {
-			ps.beginInput(projectInputRename, node.Name)
+		if node := ps.fileTree.GetSelected(); node != nil && ps.renameDialog != nil {
+			ch := ps.renameDialog.ShowWithValue(node.Name)
+			return ps, func() tea.Msg {
+				value := <-ch
+				return renameConfirmedMsg{value: value}
+			}
 		}
 		return ps, nil
 	case "delete", "ctrl+d":
@@ -517,4 +590,16 @@ type fileTreeErrorMsg struct {
 type closeTabConfirmedMsg struct {
 	index     int
 	confirmed bool
+}
+
+type newFileConfirmedMsg struct {
+	value *string
+}
+
+type newDirConfirmedMsg struct {
+	value *string
+}
+
+type renameConfirmedMsg struct {
+	value *string
 }

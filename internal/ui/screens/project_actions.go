@@ -14,63 +14,6 @@ import (
 	"surge-tui/internal/fs"
 )
 
-func (ps *ProjectScreenReal) beginInput(mode projectInputMode, placeholder string) {
-	ps.inputMode = mode
-	ps.input.Placeholder = placeholder
-	if mode == projectInputRename {
-		ps.input.SetValue(placeholder)
-		ps.input.SetCursor(len(placeholder))
-	} else {
-		ps.input.SetValue("")
-		ps.input.SetCursor(0)
-	}
-	ps.input.Focus()
-}
-
-func (ps *ProjectScreenReal) handleInputKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEnter:
-		value := strings.TrimSpace(ps.input.Value())
-		if value == "" {
-			ps.setStatus("Name cannot be empty")
-			ps.cancelInput()
-			return ps, nil
-		}
-		if err := ps.performInput(value); err != nil {
-			ps.setStatus(err.Error())
-		} else {
-			ps.setStatus("Done")
-		}
-		ps.cancelInput()
-		return ps, ps.loadFileTree()
-	case tea.KeyEsc:
-		ps.cancelInput()
-		return ps, nil
-	}
-
-	var cmd tea.Cmd
-	ps.input, cmd = ps.input.Update(msg)
-	return ps, cmd
-}
-
-func (ps *ProjectScreenReal) cancelInput() {
-	ps.inputMode = projectInputNone
-	ps.input.Blur()
-	ps.input.SetValue("")
-}
-
-func (ps *ProjectScreenReal) performInput(name string) error {
-	switch ps.inputMode {
-	case projectInputNewFile:
-		return ps.createEntry(name, false)
-	case projectInputNewDir:
-		return ps.createEntry(name, true)
-	case projectInputRename:
-		return ps.renameEntry(name)
-	default:
-		return nil
-	}
-}
 
 func (ps *ProjectScreenReal) selectedDirPath() string {
 	if ps.fileTree == nil {
@@ -144,12 +87,6 @@ func (ps *ProjectScreenReal) statusLine() string {
 	return ps.statusMsg
 }
 
-func (ps *ProjectScreenReal) renderInputModal() string {
-	prompt := ps.input.View()
-	hint := lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render("Enter: confirm • Esc: cancel")
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Render(fmt.Sprintf("%s\n%s", prompt, hint))
-}
-
 func joinOverlay(base, modal string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, base, modal)
 }
@@ -201,16 +138,24 @@ func (ps *ProjectScreenReal) InitProjectInSelectedDir() tea.Cmd {
 }
 
 func (ps *ProjectScreenReal) HandleGlobalEsc() (bool, tea.Cmd) {
-	if ps.inputMode != projectInputNone {
-		ps.cancelInput()
-		return true, nil
-	}
 	if ps.confirm != nil && ps.confirm.Visible {
 		ps.confirm.Hide()
 		return true, nil
 	}
 	if ps.closeDialog != nil && ps.closeDialog.Visible {
 		ps.closeDialog.Hide()
+		return true, nil
+	}
+	if ps.newFileDialog != nil && ps.newFileDialog.Visible {
+		ps.newFileDialog.Hide()
+		return true, nil
+	}
+	if ps.newDirDialog != nil && ps.newDirDialog.Visible {
+		ps.newDirDialog.Hide()
+		return true, nil
+	}
+	if ps.renameDialog != nil && ps.renameDialog.Visible {
+		ps.renameDialog.Hide()
 		return true, nil
 	}
 	if ps.handleEditorEscape() {
