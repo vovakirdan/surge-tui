@@ -249,9 +249,9 @@ func (a *App) initScreens() {
 func (a *App) createScreen(screenType ScreenType) screens.Screen {
 	switch screenType {
 	case ProjectScreen:
-		return screens.NewProjectScreenReal(a.projectPath)
+		return screens.NewProjectScreenReal(a.projectPath, a.config)
 	case EditorScreen:
-		return screens.NewEditorScreen()
+		return screens.NewEditorScreen(a.config)
 	case BuildScreen:
 		return screens.NewDiagnosticsScreen(a.projectPath, a.surgeClient)
 	case FixModeScreen:

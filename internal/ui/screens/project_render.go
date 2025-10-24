@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"surge-tui/internal/platform"
+	"surge-tui/internal/syntax"
 )
 
 func (ps *ProjectScreenReal) renderLoading() string {
@@ -169,38 +170,70 @@ func (ps *ProjectScreenReal) renderEditorBody() string {
 	}
 
 	contentWidth := ps.editorContentWidth()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
 	contentHeight := ps.editorContentHeight()
 
 	lineNumberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
 	cursorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#7C3AED"))
 
+	highlight := ps.config != nil && ps.config.Editor.SyntaxHighlight
+	themeName := "dark"
+	if ps.config != nil && strings.TrimSpace(ps.config.Theme) != "" {
+		themeName = ps.config.Theme
+	}
+	var theme syntax.HighlightTheme
+	if highlight {
+		tab.ensureHighlight(true)
+		theme = syntax.NewHighlightTheme(themeName)
+	} else {
+		tab.ensureHighlight(false)
+	}
+
 	start := tab.scroll
 	end := min(start+contentHeight, tab.lineCount())
 
-	var rows []string
+	rows := make([]string, 0, max(1, end-start))
 	for idx := start; idx < end; idx++ {
-		line := tab.lines[idx]
-		runes := []rune(line)
-		col := min(tab.cursor.Col, len(runes))
-
-		display := line
-		if idx == tab.cursor.Line {
-			before := string(runes[:col])
-			cursor := " "
-			after := ""
-			if col < len(runes) {
-				cursor = string(runes[col])
-				after = string(runes[col+1:])
-			}
-			display = before + cursorStyle.Render(cursor) + after
-		}
-
 		contentStyle := lipgloss.NewStyle().Width(contentWidth)
-		if idx == tab.cursor.Line {
+		isCursorLine := idx == tab.cursor.Line
+		if isCursorLine {
 			contentStyle = contentStyle.Background(lipgloss.Color("#1F2937"))
 		}
 
 		number := lineNumberStyle.Render(fmt.Sprintf("%5d ", idx+1))
+
+		var display string
+		if highlight && tab.highlightLines != nil && idx < len(tab.highlightLines) {
+			opts := syntax.RenderOptions{}
+			if isCursorLine {
+				opts.CursorCol = tab.cursor.Col
+				opts.CursorStyle = &cursorStyle
+			}
+			rendered, _ := syntax.Render(tab.highlightLines[idx], theme, opts)
+			display = rendered
+		} else {
+			line := ""
+			if idx < len(tab.lines) {
+				line = tab.lines[idx]
+			}
+			runes := []rune(line)
+			col := min(tab.cursor.Col, len(runes))
+			if isCursorLine {
+				before := string(runes[:col])
+				cursorRune := " "
+				after := ""
+				if col < len(runes) {
+					cursorRune = string(runes[col])
+					after = string(runes[col+1:])
+				}
+				display = before + cursorStyle.Render(cursorRune) + after
+			} else {
+				display = line
+			}
+		}
+
 		row := lipgloss.JoinHorizontal(lipgloss.Left, number, contentStyle.Render(display))
 		rows = append(rows, row)
 	}
@@ -417,20 +450,6 @@ func (ps *ProjectScreenReal) renderFileActions() string {
 	}
 
 	return strings.Join(entries, "\n")
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func truncateMiddle(s string, limit int) string {

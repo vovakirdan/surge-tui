@@ -8,12 +8,16 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/config"
 	"surge-tui/internal/platform"
+	"surge-tui/internal/syntax"
 )
 
 // EditorScreen предоставляет просмотр и (в будущем) редактирование файла.
 type EditorScreen struct {
 	BaseScreen
+
+	config *config.Config
 
 	filePath string
 	lines    []string
@@ -27,6 +31,12 @@ type EditorScreen struct {
 	statusAt time.Time
 
 	softWrap bool
+
+	highlightLines     []syntax.Line
+	highlightTheme     syntax.HighlightTheme
+	highlightThemeName string
+	revision           int
+	highlightRevision  int
 }
 
 type editorStats struct {
@@ -37,14 +47,55 @@ type editorStats struct {
 }
 
 // NewEditorScreen создает редактор без открытого файла.
-func NewEditorScreen() *EditorScreen {
+func NewEditorScreen(cfg *config.Config) *EditorScreen {
 	return &EditorScreen{
 		BaseScreen: NewBaseScreen("Editor"),
+		config:     cfg,
 		lines:      []string{},
 		scroll:     0,
 		loading:    false,
 		err:        nil,
 		softWrap:   false,
+	}
+}
+
+func (es *EditorScreen) highlightEnabled() bool {
+	if es == nil || es.config == nil {
+		return false
+	}
+	return es.config.Editor.SyntaxHighlight
+}
+
+func (es *EditorScreen) desiredThemeName() string {
+	if es == nil || es.config == nil || strings.TrimSpace(es.config.Theme) == "" {
+		return "dark"
+	}
+	return es.config.Theme
+}
+
+func (es *EditorScreen) ensureHighlightFresh(force bool) {
+	if !es.highlightEnabled() {
+		es.highlightLines = nil
+		es.highlightRevision = es.revision
+		es.highlightThemeName = ""
+		return
+	}
+
+	themeName := strings.ToLower(es.desiredThemeName())
+	if !force && es.highlightRevision == es.revision && es.highlightThemeName == themeName && len(es.highlightLines) == len(es.lines) {
+		return
+	}
+
+	es.highlightTheme = syntax.NewHighlightTheme(themeName)
+	es.highlightLines = syntax.HighlightDocument(es.lines)
+	es.highlightThemeName = themeName
+	es.highlightRevision = es.revision
+}
+
+func (es *EditorScreen) bumpRevision() {
+	es.revision++
+	if es.revision == 0 {
+		es.revision = 1
 	}
 }
 
@@ -73,6 +124,8 @@ func (es *EditorScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		es.lines = m.Lines
 		es.stats = m.Stats
 		es.scroll = 0
+		es.bumpRevision()
+		es.ensureHighlightFresh(true)
 		es.setStatus("Loaded")
 		return es, nil
 	case editorFileErrorMsg:
@@ -80,6 +133,9 @@ func (es *EditorScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		es.err = m.Err
 		es.filePath = m.Path
 		es.lines = nil
+		es.bumpRevision()
+		es.highlightLines = nil
+		es.highlightRevision = es.revision
 		es.setStatus("")
 		return es, nil
 	}

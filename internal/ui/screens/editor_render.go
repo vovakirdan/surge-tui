@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"surge-tui/internal/platform"
+	"surge-tui/internal/syntax"
 )
 
 func (es *EditorScreen) renderLoading() string {
@@ -61,25 +62,52 @@ func (es *EditorScreen) renderHeader() string {
 
 func (es *EditorScreen) renderBody() string {
 	height := max(es.contentHeight(), 1)
-	var lines []string
+
+	highlight := es.highlightEnabled()
+	if highlight {
+		es.ensureHighlightFresh(false)
+	} else {
+		es.highlightLines = nil
+		es.highlightThemeName = ""
+	}
+
+	lineNumberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+
 	start := es.scroll
 	end := min(start+height, len(es.lines))
+	rows := make([]string, 0, max(1, end-start))
+
+	var theme syntax.HighlightTheme
+	if highlight {
+		theme = es.highlightTheme
+	}
+
 	for idx := start; idx < end; idx++ {
 		lineNumber := fmt.Sprintf("%6d ", idx+1)
-		content := es.lines[idx]
-		if !es.softWrap {
-			maxWidth := es.Width() - 8
-			if maxWidth > 0 && len([]rune(content)) > maxWidth {
-				content = string([]rune(content)[:maxWidth]) + "…"
+		var content string
+		if highlight && idx < len(es.highlightLines) && es.highlightLines != nil {
+			opts := syntax.RenderOptions{}
+			rendered, _ := syntax.Render(es.highlightLines[idx], theme, opts)
+			content = rendered
+		} else {
+			raw := ""
+			if idx < len(es.lines) {
+				raw = es.lines[idx]
 			}
+			content = raw
 		}
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Render(lineNumber)+content)
+		row := lineNumberStyle.Render(lineNumber) + content
+		rows = append(rows, row)
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, lineNumberStyle.Render(fmt.Sprintf("%6d ", 1)))
 	}
 	return lipgloss.NewStyle().
 		Width(es.Width()).
 		Height(height).
 		Padding(0, 1).
-		Render(strings.Join(lines, "\n"))
+		Render(strings.Join(rows, "\n"))
 }
 
 func (es *EditorScreen) renderFooter() string {

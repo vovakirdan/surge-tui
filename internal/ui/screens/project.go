@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"surge-tui/internal/config"
 	"surge-tui/internal/fs"
 	"surge-tui/internal/platform"
 	"surge-tui/internal/ui/components"
@@ -43,6 +44,8 @@ const (
 // ProjectScreenReal настоящий экран проекта с деревом файлов
 type ProjectScreenReal struct {
 	BaseScreen
+
+	config *config.Config
 
 	// Состояние
 	projectPath string
@@ -87,7 +90,7 @@ type ProjectStatus struct {
 }
 
 // NewProjectScreenReal создает новый экран проекта
-func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
+func NewProjectScreenReal(projectPath string, cfg *config.Config) *ProjectScreenReal {
 	if projectPath == "" {
 		// Используем текущую директорию если не указана
 		pwd, _ := os.Getwd()
@@ -102,6 +105,7 @@ func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
 
 	return &ProjectScreenReal{
 		BaseScreen:     NewBaseScreen("Project"),
+		config:         cfg,
 		projectPath:    projectPath,
 		focusedPanel:   FileTreePanel,
 		loading:        true,

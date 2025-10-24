@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"surge-tui/internal/syntax"
 )
 
 type editorMode int
@@ -31,6 +33,10 @@ type editorTab struct {
 	dirty     bool
 	created   bool
 	lastSaved int64
+
+	highlightLines    []syntax.Line
+	highlightRevision int
+	revision          int
 }
 
 func newEditorTab(path string) (*editorTab, error) {
@@ -56,17 +62,45 @@ func newEditorTab(path string) (*editorTab, error) {
 	}
 
 	tab := &editorTab{
-		path:    abs,
-		name:    filepath.Base(abs),
-		lines:   lines,
-		cursor:  cursorPosition{Line: 0, Col: 0},
-		mode:    editorModeNormal,
-		pending: "",
-		dirty:   created,
-		created: created,
+		path:              abs,
+		name:              filepath.Base(abs),
+		lines:             lines,
+		cursor:            cursorPosition{Line: 0, Col: 0},
+		mode:              editorModeNormal,
+		pending:           "",
+		dirty:             created,
+		created:           created,
+		highlightRevision: -1,
 	}
 	tab.clampCursor()
+	tab.bumpRevision()
 	return tab, nil
+}
+
+func (t *editorTab) bumpRevision() {
+	t.revision++
+	t.highlightRevision = -1
+	if t.revision == 0 {
+		t.revision = 1
+	}
+}
+
+func (t *editorTab) markDirty() {
+	t.dirty = true
+	t.bumpRevision()
+}
+
+func (t *editorTab) ensureHighlight(enabled bool) {
+	if !enabled {
+		t.highlightLines = nil
+		t.highlightRevision = t.revision
+		return
+	}
+	if t.highlightLines != nil && t.highlightRevision == t.revision && len(t.highlightLines) == len(t.lines) {
+		return
+	}
+	t.highlightLines = syntax.HighlightDocument(t.lines)
+	t.highlightRevision = t.revision
 }
 
 func (t *editorTab) lineCount() int {
@@ -129,7 +163,7 @@ func (t *editorTab) insertRunes(rs []rune) {
 	newRunes := append(lineRunes[:col], append(rs, lineRunes[col:]...)...)
 	t.lines[t.cursor.Line] = string(newRunes)
 	t.cursor.Col += len(rs)
-	t.dirty = true
+	t.markDirty()
 }
 
 func (t *editorTab) insertString(text string) {
@@ -156,7 +190,7 @@ func (t *editorTab) insertNewLine() {
 
 	t.cursor.Line++
 	t.cursor.Col = 0
-	t.dirty = true
+	t.markDirty()
 }
 
 func (t *editorTab) deleteBackward() {
@@ -169,7 +203,7 @@ func (t *editorTab) deleteBackward() {
 		newRunes := append(lineRunes[:col-1], lineRunes[col:]...)
 		t.lines[t.cursor.Line] = string(newRunes)
 		t.cursor.Col--
-		t.dirty = true
+		t.markDirty()
 		return
 	}
 	if t.cursor.Line == 0 {
@@ -188,7 +222,7 @@ func (t *editorTab) deleteBackward() {
 		t.cursor.Line = 0
 		t.cursor.Col = 0
 	}
-	t.dirty = true
+	t.markDirty()
 }
 
 func (t *editorTab) deleteForward() {
@@ -197,7 +231,7 @@ func (t *editorTab) deleteForward() {
 	if col < len(lineRunes) {
 		newRunes := append(lineRunes[:col], lineRunes[col+1:]...)
 		t.lines[t.cursor.Line] = string(newRunes)
-		t.dirty = true
+		t.markDirty()
 		return
 	}
 
@@ -213,7 +247,7 @@ func (t *editorTab) deleteForward() {
 		t.cursor.Line = 0
 		t.cursor.Col = 0
 	}
-	t.dirty = true
+	t.markDirty()
 }
 
 func (t *editorTab) deleteLine() string {
@@ -235,7 +269,7 @@ func (t *editorTab) deleteLine() string {
 		}
 	}
 	t.clampCursor()
-	t.dirty = true
+	t.markDirty()
 	return line
 }
 
@@ -256,7 +290,7 @@ func (t *editorTab) pasteLine(content string) {
 		t.cursor.Line = insertIndex
 	}
 	t.cursor.Col = 0
-	t.dirty = true
+	t.markDirty()
 }
 
 func (t *editorTab) setCursorPosition(line, column int) {
