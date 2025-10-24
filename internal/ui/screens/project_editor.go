@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 func (ps *ProjectScreenReal) activeEditorTab() *editorTab {
@@ -266,7 +267,7 @@ func (ps *ProjectScreenReal) handleEditorKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		return ps, nil
 	}
 
-	key := msg.String()
+	key := platform.CanonicalKeyForLookup(msg.String())
 	switch key {
 	case "ctrl+left":
 		ps.focusedPanel = FileTreePanel
@@ -336,7 +337,8 @@ func (ps *ProjectScreenReal) handleInsertModeKey(tab *editorTab, msg tea.KeyMsg)
 		return ps, nil
 	}
 
-	switch msg.String() {
+	key := platform.CanonicalKeyForLookup(msg.String())
+	switch key {
 	case "ctrl+s":
 		ps.saveActiveTab()
 	case "tab":
@@ -391,7 +393,7 @@ func (ps *ProjectScreenReal) handleCommandModeKey(tab *editorTab, msg tea.KeyMsg
 }
 
 func (ps *ProjectScreenReal) handleNormalModeKey(tab *editorTab, msg tea.KeyMsg) (Screen, tea.Cmd) {
-	key := msg.String()
+	key := platform.CanonicalKeyForLookup(msg.String())
 
 	switch {
 	case tab.hasPending("y"):

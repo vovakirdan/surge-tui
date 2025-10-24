@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"surge-tui/internal/config"
 	core "surge-tui/internal/core/surge"
+	"surge-tui/internal/platform"
 	"surge-tui/internal/ui/components"
 	"surge-tui/internal/ui/screens"
 	"surge-tui/internal/ui/styles"
@@ -281,7 +282,19 @@ func (a *App) renderStatusBar() string {
 	} else {
 		surge = "Surge: not found"
 	}
-	help := "Ctrl+Q Quit • Ctrl+P Commands • Tab Switch Screens"
+	keyLabel := func(id, fallback string) string {
+		if a.config != nil && a.config.Keybindings != nil {
+			if key := strings.TrimSpace(a.config.Keybindings[id]); key != "" {
+				return prettifyKey(key)
+			}
+		}
+		return prettifyKey(fallback)
+	}
+	help := fmt.Sprintf("%s Quit • %s Commands • %s Switch Screens",
+		keyLabel("quit", "ctrl+q"),
+		keyLabel("command_palette", "ctrl+p"),
+		keyLabel("switch_screen", "tab"),
+	)
 	return a.theme.StatusBar(fmt.Sprintf("%s | %s | %s", proj, surge, help))
 }
 
@@ -411,22 +424,7 @@ func (a *App) screenTitle(screen ScreenType) string {
 }
 
 func prettifyKey(key string) string {
-	if key == "" {
-		return ""
-	}
-	parts := strings.Split(key, "+")
-	for i, part := range parts {
-		p := strings.TrimSpace(part)
-		if len(p) == 0 {
-			continue
-		}
-		if len(p) == 1 {
-			parts[i] = strings.ToUpper(p)
-			continue
-		}
-		parts[i] = strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
-	}
-	return strings.Join(parts, "+")
+	return platform.DisplayKey(key)
 }
 
 // Сообщения для приложения

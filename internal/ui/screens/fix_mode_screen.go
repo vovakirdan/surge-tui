@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"surge-tui/internal/core/surge"
+	"surge-tui/internal/platform"
 	"surge-tui/internal/ui/components"
 )
 
@@ -198,7 +199,7 @@ func (fs *FixModeScreen) View() string {
 }
 
 func (fs *FixModeScreen) ShortHelp() string {
-	return "↑↓ Navigate • Enter Preview • a Apply • A Apply All • Ctrl+R Refresh"
+	return platform.ReplacePrimaryModifier("↑↓ Navigate • Enter Preview • a Apply • A Apply All • Ctrl+R Refresh")
 }
 
 func (fs *FixModeScreen) FullHelp() []string {
@@ -211,22 +212,23 @@ func (fs *FixModeScreen) FullHelp() []string {
 		"  Enter - Preview details",
 		"  a - Apply selected fix",
 		"  A - Apply all fixes",
-		"  Ctrl+R - Reload",
+		platform.ReplacePrimaryModifier("  Ctrl+R - Reload"),
 		"  Tab - Toggle suggested fixes",
 	}...)
 	return help
 }
 
 func (fs *FixModeScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
+	key := platform.CanonicalKeyForLookup(msg.String())
 	if fs.loading {
-		switch msg.String() {
+		switch key {
 		case "ctrl+r":
 			return fs, fs.loadFixes()
 		}
 		return fs, nil
 	}
 
-	switch msg.String() {
+	switch key {
 	case "ctrl+r":
 		return fs, fs.loadFixes()
 	case "up", "k":

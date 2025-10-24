@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"surge-tui/internal/fs"
+	"surge-tui/internal/platform"
 	"surge-tui/internal/ui/components"
 )
 
@@ -38,7 +39,6 @@ const (
 	FileTreePanel PanelType = iota
 	EditorPanel
 )
-
 
 // ProjectScreenReal настоящий экран проекта с деревом файлов
 type ProjectScreenReal struct {
@@ -93,7 +93,6 @@ func NewProjectScreenReal(projectPath string) *ProjectScreenReal {
 		pwd, _ := os.Getwd()
 		projectPath = pwd
 	}
-
 
 	cmdInput := textinput.New()
 	cmdInput.Prompt = ":"
@@ -301,7 +300,9 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		return ps, nil
 	}
 
-	switch msg.String() {
+	key := platform.CanonicalKeyForLookup(msg.String())
+
+	switch key {
 	case "ctrl+left":
 		ps.focusedPanel = FileTreePanel
 		ps.recalculateLayout()
@@ -383,14 +384,14 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 
 	// Навигация в дереве файлов
 	if ps.focusedPanel == FileTreePanel && ps.fileTree != nil {
-		switch msg.String() {
+		switch key {
 		case "up", "k":
 			ps.fileTree.SetSelected(ps.fileTree.Selected - 1)
 			return ps, nil
 		case "down", "j":
 			ps.fileTree.SetSelected(ps.fileTree.Selected + 1)
 			return ps, nil
-		case " ", "space":
+		case "space":
 			ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
 			ps.updateStats()
 			return ps, nil
@@ -549,7 +550,7 @@ func (ps *ProjectScreenReal) Title() string {
 
 // ShortHelp возвращает краткую справку
 func (ps *ProjectScreenReal) ShortHelp() string {
-	return "↑↓ Navigate • Enter Open • Space Expand • Ctrl+→ Editor • Alt+←/→ Tabs"
+	return platform.ReplacePrimaryModifier("↑↓ Navigate • Enter Open • Space Expand • Ctrl+→ Editor • Alt+←/→ Tabs")
 }
 
 // FullHelp возвращает полную справку
@@ -559,7 +560,7 @@ func (ps *ProjectScreenReal) FullHelp() []string {
 		"",
 		"Project Screen:",
 		"  ↑/↓ or j/k - Navigate files",
-		"  Ctrl+→ - Focus editor • Ctrl+← - Focus tree",
+		platform.ReplacePrimaryModifier("  Ctrl+→ - Focus editor • Ctrl+← - Focus tree"),
 		"  Enter - Open selected file / expand directory",
 		"  Space - Expand/collapse directory",
 		"  n - New file",
@@ -568,7 +569,7 @@ func (ps *ProjectScreenReal) FullHelp() []string {
 		"  Delete - Delete with confirmation",
 		"  h - Toggle hidden files display",
 		"  s - Toggle .sg files only filter",
-		"  Ctrl+R - Refresh file tree",
+		platform.ReplacePrimaryModifier("  Ctrl+R - Refresh file tree"),
 		"  Alt+←/→ - Switch editor tab • Alt+Shift+←/→ - Reorder tabs",
 		"  yy / dd / p - Copy, cut, paste current line",
 		"  :w save • :q quit tab • :q! force quit",

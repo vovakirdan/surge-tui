@@ -2,11 +2,13 @@ package app
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 // handleGlobalKeys обрабатывает глобальные горячие клавиши
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
+	rawKey := msg.String()
+	canonicalKey := platform.CanonicalKeyForLookup(rawKey)
 
 	if a.quitDialog != nil && a.quitDialog.Visible {
 		if cmd := a.quitDialog.Update(msg); cmd != nil {
@@ -16,29 +18,17 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Сначала пытаемся найти команду через реестр
-	if cmd := a.commands.Resolve(key, a.currentScreen); cmd != nil {
+	if cmd := a.commands.Resolve(rawKey, a.currentScreen); cmd != nil {
 		if cmd.Enabled == nil || cmd.Enabled(a) {
 			return a, cmd.Run(a)
 		}
 		return a, nil
 	}
 
-	switch key {
-	case "ctrl+c", "ctrl+q":
+	switch {
+	case platform.MatchesKey(rawKey, "ctrl+c"):
 		return a, a.requestQuit()
-	case "ctrl+p":
-		return a, a.router.SwitchTo(CommandPaletteScreen)
-	case "f1":
-		return a, a.router.SwitchTo(HelpScreen)
-	case "ctrl+comma":
-		return a, a.router.SwitchTo(SettingsScreen)
-	case "tab":
-		return a, a.router.SwitchToNext()
-	case "ctrl+i":
-		return a, a.initProject()
-	case "ctrl+f":
-		return a, a.router.SwitchTo(FixModeScreen)
-	case "esc":
+	case canonicalKey == "esc":
 		current := a.getCurrentScreen()
 		if handler, ok := current.(escHandler); ok {
 			if handled, cmd := handler.HandleGlobalEsc(); handled {

@@ -6,17 +6,19 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 func (ss *SettingsScreen) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
-	switch msg.String() {
+	key := platform.CanonicalKeyForLookup(msg.String())
+	switch key {
 	case "up", "k":
 		ss.selectPreviousField()
 		return ss, nil
 	case "down", "j":
 		ss.selectNextField()
 		return ss, nil
-	case "enter", " ":
+	case "enter", "space":
 		return ss.enterEditMode()
 	case "s", "ctrl+s":
 		return ss, ss.saveSettings()
@@ -25,7 +27,7 @@ func (ss *SettingsScreen) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 	case "t":
 		ss.toggleTheme()
 		return ss, nil
-	case "escape":
+	case "esc":
 		// later integrate confirm dialog; for now noop
 		return ss, nil
 	}

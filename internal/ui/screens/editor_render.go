@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"surge-tui/internal/platform"
 )
 
 func (es *EditorScreen) renderLoading() string {
@@ -24,7 +25,7 @@ func (es *EditorScreen) renderError() string {
 		Height(es.Height()).
 		Align(lipgloss.Center, lipgloss.Center).
 		Foreground(lipgloss.Color(ErrorColor)).
-		Render(fmt.Sprintf("❌ Failed to load file\n\n%s\n\n%v\n\nCtrl+R to retry", es.filePath, es.err))
+		Render(platform.ReplacePrimaryModifier(fmt.Sprintf("❌ Failed to load file\n\n%s\n\n%v\n\nCtrl+R to retry", es.filePath, es.err)))
 }
 
 func (es *EditorScreen) renderEmpty() string {
@@ -62,7 +63,7 @@ func (es *EditorScreen) renderBody() string {
 	height := max(es.contentHeight(), 1)
 	var lines []string
 	start := es.scroll
-	end := min(start + height, len(es.lines))
+	end := min(start+height, len(es.lines))
 	for idx := start; idx < end; idx++ {
 		lineNumber := fmt.Sprintf("%6d ", idx+1)
 		content := es.lines[idx]

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"surge-tui/internal/platform"
 )
 
 // Config конфигурация приложения
@@ -73,22 +74,7 @@ func DefaultConfig() *Config {
 			SyntaxHighlight: true,
 		},
 
-		Keybindings: map[string]string{
-			"quit":               "ctrl+q",
-			"command_palette":    "ctrl+p",
-			"help":               "f1",
-			"settings":           "ctrl+comma",
-			"workspace":          "esc",
-			"fix_mode":           "ctrl+f",
-			"save":               "ctrl+s",
-			"build":              "ctrl+b",
-			"undo":               "ctrl+z",
-			"redo":               "ctrl+y",
-			"external_editor":    "ctrl+e",
-			"switch_screen":      "tab",
-			"switch_screen_back": "shift+tab",
-			"init_project":       "ctrl+i",
-		},
+		Keybindings: defaultKeybindings(),
 
 		Performance: PerformanceConfig{
 			MaxFileSize:   10 * 1024 * 1024, // 10 MB
@@ -264,4 +250,30 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func defaultKeybindings() map[string]string {
+	primary := platform.PrimaryModifierKey()
+	kb := map[string]string{
+		"quit":               primary + "+q",
+		"command_palette":    primary + "+p",
+		"help":               "f1",
+		"settings":           primary + "+comma",
+		"workspace":          "esc",
+		"fix_mode":           primary + "+f",
+		"save":               primary + "+s",
+		"build":              primary + "+b",
+		"undo":               primary + "+z",
+		"redo":               primary + "+y",
+		"external_editor":    primary + "+e",
+		"switch_screen":      "tab",
+		"switch_screen_back": "shift+tab",
+		"init_project":       primary + "+i",
+	}
+
+	if platform.IsMac() {
+		kb["redo"] = "shift+" + primary + "+z"
+	}
+
+	return kb
 }

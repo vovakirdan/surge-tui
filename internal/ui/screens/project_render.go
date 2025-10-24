@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"surge-tui/internal/platform"
 )
 
 func (ps *ProjectScreenReal) renderLoading() string {
@@ -24,7 +25,8 @@ func (ps *ProjectScreenReal) renderError() string {
 		Align(lipgloss.Center, lipgloss.Center).
 		Foreground(lipgloss.Color(ErrorColor))
 
-	return style.Render(fmt.Sprintf("❌ Error loading project\n\n%s\n\n%v\n\nPress 'Ctrl+R' to retry", ps.projectPath, ps.err))
+	message := fmt.Sprintf("❌ Error loading project\n\n%s\n\n%v\n\nPress 'Ctrl+R' to retry", ps.projectPath, ps.err)
+	return style.Render(platform.ReplacePrimaryModifier(message))
 }
 
 func (ps *ProjectScreenReal) renderFileTreePanel() string {
@@ -371,8 +373,8 @@ func (ps *ProjectScreenReal) renderProjectInfo(width int) string {
 	lines = append(lines, "n / Shift+N - New file / directory")
 	lines = append(lines, "r - Rename • Delete - Remove")
 	lines = append(lines, "h - Toggle hidden • s - Toggle .sg")
-	lines = append(lines, "Ctrl+R - Refresh tree listing")
-	lines = append(lines, "Ctrl+→ focus editor • Ctrl+← focus tree")
+	lines = append(lines, platform.ReplacePrimaryModifier("Ctrl+R - Refresh tree listing"))
+	lines = append(lines, platform.ReplacePrimaryModifier("Ctrl+→ focus editor • Ctrl+← focus tree"))
 	lines = append(lines, "Alt+←/→ switch tab • Alt+Shift+←/→ reorder")
 	lines = append(lines, ":w save • :q quit tab • yy/dd/p line copy/cut/paste")
 

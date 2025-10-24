@@ -2,6 +2,7 @@ package screens
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 // Screen интерфейс для всех экранов приложения
@@ -74,7 +75,7 @@ func (bs *BaseScreen) OnExit() tea.Cmd {
 
 // ShortHelp базовая реализация справки
 func (bs *BaseScreen) ShortHelp() string {
-	return "Tab: Switch screens • Ctrl+Q: Quit"
+	return platform.ReplacePrimaryModifier("Tab: Switch screens • Ctrl+Q: Quit")
 }
 
 // FullHelp базовая реализация полной справки
@@ -82,11 +83,11 @@ func (bs *BaseScreen) FullHelp() []string {
 	return []string{
 		"Navigation:",
 		"  Tab/Shift+Tab - Switch between screens",
-		"  Ctrl+P - Command palette",
+		platform.ReplacePrimaryModifier("  Ctrl+P - Command palette"),
 		"  F1 - Help",
 		"",
 		"Global:",
-		"  Ctrl+Q - Quit application",
-		"  Ctrl+, - Settings",
+		platform.ReplacePrimaryModifier("  Ctrl+Q - Quit application"),
+		platform.ReplacePrimaryModifier("  Ctrl+, - Settings"),
 	}
 }

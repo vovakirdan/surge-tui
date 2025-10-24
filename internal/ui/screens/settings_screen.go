@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"surge-tui/internal/config"
+	"surge-tui/internal/platform"
 )
 
 // SettingsScreen renders and edits application configuration.
@@ -110,8 +111,8 @@ func (ss *SettingsScreen) FullHelp() []string {
 		"Settings Screen:",
 		"  ↑/↓ or j/k - Navigate between settings",
 		"  Enter or Space - Edit selected setting",
-		"  S or Ctrl+S - Save settings to file",
-		"  R or Ctrl+R - Reset to original values",
+		platform.ReplacePrimaryModifier("  S or Ctrl+S - Save settings to file"),
+		platform.ReplacePrimaryModifier("  R or Ctrl+R - Reset to original values"),
 		"  T - Quick toggle theme (dark/light)",
 		"  Escape - Cancel edit or exit",
 		"",

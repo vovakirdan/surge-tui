@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 // PlaceholderScreen простой экран-заглушка для начальной разработки
@@ -41,7 +42,7 @@ func (ps *PlaceholderScreen) View() string {
 	content += "This screen is under development.\n\n"
 	content += "Available actions:\n"
 	content += "• Tab - Switch to next screen\n"
-	content += "• Ctrl+Q - Quit application\n"
+	content += platform.ReplacePrimaryModifier("• Ctrl+Q - Quit application\n")
 	content += "• F1 - Help\n\n"
 	content += "Screen size: " + ps.dimensionsInfo()
 
@@ -58,5 +59,5 @@ func (ps *PlaceholderScreen) dimensionsInfo() string {
 
 // ShortHelp возвращает краткую справку
 func (ps *PlaceholderScreen) ShortHelp() string {
-	return "Tab: Next screen • Ctrl+Q: Quit • F1: Help"
+	return platform.ReplacePrimaryModifier("Tab: Next screen • Ctrl+Q: Quit • F1: Help")
 }

@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 // Command describes an executable action, optionally bound to a key and/or screen.
@@ -35,13 +36,21 @@ func (r *CommandRegistry) Register(cmd *Command) {
 	}
 	r.byID[cmd.ID] = cmd
 	if cmd.Key != "" {
-		r.byKey[cmd.Key] = append(r.byKey[cmd.Key], cmd)
+		canonical := platform.CanonicalKeyForLookup(cmd.Key)
+		if canonical == "" {
+			canonical = cmd.Key
+		}
+		r.byKey[canonical] = append(r.byKey[canonical], cmd)
 	}
 }
 
 // Resolve returns the first matching command for key and screen.
 func (r *CommandRegistry) Resolve(key string, screen ScreenType) *Command {
-	cmds := r.byKey[key]
+	canonical := platform.CanonicalKeyForLookup(key)
+	if canonical == "" {
+		canonical = key
+	}
+	cmds := r.byKey[canonical]
 	if len(cmds) == 0 {
 		return nil
 	}

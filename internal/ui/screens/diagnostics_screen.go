@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	core "surge-tui/internal/core/surge"
+	"surge-tui/internal/platform"
 )
 
 // DiagnosticsScreen отображает результаты `surge diag` и позволяет прыгать к ошибкам.
@@ -131,8 +132,9 @@ func (ds *DiagnosticsScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (ds *DiagnosticsScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
+	key := platform.CanonicalKeyForLookup(msg.String())
 	if ds.running {
-		switch msg.String() {
+		switch key {
 		case "esc":
 			ds.cancelRunning()
 			return ds, nil
@@ -141,7 +143,7 @@ func (ds *DiagnosticsScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		}
 	}
 
-	switch msg.String() {
+	switch key {
 	case "f5", "ctrl+r":
 		return ds, ds.runDiagnostics()
 	case "up", "k":
@@ -199,7 +201,7 @@ func (ds *DiagnosticsScreen) FullHelp() []string {
 	help = append(help, []string{
 		"",
 		"Diagnostics Screen:",
-		"  F5 / Ctrl+R - Run diagnostics",
+		platform.ReplacePrimaryModifier("  F5 / Ctrl+R - Run diagnostics"),
 		"  ↑/↓ or j/k - Move selection",
 		"  PgUp/PgDn - Scroll page",
 		"  Enter - Open location in workspace",

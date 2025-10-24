@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"surge-tui/internal/platform"
 )
 
 // EditorScreen предоставляет просмотр и (в будущем) редактирование файла.
@@ -102,7 +103,7 @@ func (es *EditorScreen) View() string {
 }
 
 func (es *EditorScreen) ShortHelp() string {
-	return "↑↓ Scroll • PgUp/PgDn • Ctrl+R Reload • g/G Top/Bottom"
+	return platform.ReplacePrimaryModifier("↑↓ Scroll • PgUp/PgDn • Ctrl+R Reload • g/G Top/Bottom")
 }
 
 func (es *EditorScreen) FullHelp() []string {
@@ -114,7 +115,7 @@ func (es *EditorScreen) FullHelp() []string {
 		"  PgUp/PgDn - Scroll by half page",
 		"  g - Go to top",
 		"  G - Go to bottom",
-		"  Ctrl+R - Reload current file",
+		platform.ReplacePrimaryModifier("  Ctrl+R - Reload current file"),
 	}...)
 	return help
 }
@@ -159,7 +160,8 @@ func (es *EditorScreen) handleKey(msg tea.KeyMsg) (Screen, tea.Cmd) {
 	if es.loading {
 		return es, nil
 	}
-	switch msg.String() {
+	key := platform.CanonicalKeyForLookup(msg.String())
+	switch key {
 	case "up", "k":
 		es.scrollUp(1)
 		return es, nil
@@ -217,12 +219,12 @@ func (es *EditorScreen) pageStep() int {
 	if h <= 0 {
 		return 1
 	}
-	step := max(h / 2, 1)
+	step := max(h/2, 1)
 	return step
 }
 
 func (es *EditorScreen) contentHeight() int {
-	return max(es.Height() - 3, 1) // header + status lines
+	return max(es.Height()-3, 1) // header + status lines
 }
 
 func (es *EditorScreen) maxScroll() int {
