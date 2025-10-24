@@ -243,15 +243,31 @@ func (ps *ProjectScreenReal) handleEditorEscape() bool {
 }
 
 func (ps *ProjectScreenReal) editorContentHeight() int {
-	// Панель имеет рамку (2 строки) + строка табов + статус
-	content := ps.Height() - 5
+	height := ps.Height()
+	if height < 1 {
+		return 1
+	}
+
+	// Учитываем рамку панели
+	height -= 2
+
+	// Учитываем строку табов, если есть открытые вкладки
+	if len(ps.tabs) > 0 {
+		height--
+	}
+
+	// Учитываем статусную строку редактора
+	height--
+
+	// Дополнительно учитываем командную строку в командном режиме
 	if tab := ps.activeEditorTab(); tab != nil && tab.mode == editorModeCommand {
-		content--
+		height--
 	}
-	if content < 1 {
-		content = 1
+
+	if height < 1 {
+		height = 1
 	}
-	return content
+	return height
 }
 
 func (ps *ProjectScreenReal) editorContentWidth() int {

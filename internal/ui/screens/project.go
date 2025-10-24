@@ -22,8 +22,7 @@ const (
 	TreeMinWidth       = 18   // Минимально допустимая ширина дерева
 
 	// Display constants
-	MaxDisplayLines = 6 // Резерв строк для заголовков и рамок
-	ScrollOffset    = 2 // Отступ при прокрутке
+	ScrollOffset = 2 // Отступ при прокрутке
 
 	// Colors
 	ActiveBorderColor   = "#7C3AED"

@@ -14,7 +14,6 @@ import (
 	"surge-tui/internal/fs"
 )
 
-
 func (ps *ProjectScreenReal) selectedDirPath() string {
 	if ps.fileTree == nil {
 		return ps.projectPath
@@ -138,33 +137,42 @@ func (ps *ProjectScreenReal) InitProjectInSelectedDir() tea.Cmd {
 }
 
 func (ps *ProjectScreenReal) HandleGlobalEsc() (bool, tea.Cmd) {
+	handled := false
+
+	if ps.handleEditorEscape() {
+		handled = true
+	}
+
 	if ps.confirm != nil && ps.confirm.Visible {
 		ps.confirm.Hide()
-		return true, nil
+		handled = true
 	}
 	if ps.closeDialog != nil && ps.closeDialog.Visible {
 		ps.closeDialog.Hide()
-		return true, nil
+		handled = true
 	}
 	if ps.newFileDialog != nil && ps.newFileDialog.Visible {
 		ps.newFileDialog.Hide()
-		return true, nil
+		handled = true
 	}
 	if ps.newDirDialog != nil && ps.newDirDialog.Visible {
 		ps.newDirDialog.Hide()
-		return true, nil
+		handled = true
 	}
 	if ps.renameDialog != nil && ps.renameDialog.Visible {
 		ps.renameDialog.Hide()
-		return true, nil
-	}
-	if ps.handleEditorEscape() {
-		return true, nil
+		handled = true
 	}
 	if ps.focusedPanel != FileTreePanel {
 		ps.focusedPanel = FileTreePanel
 		ps.recalculateLayout()
-		return true, nil
+		handled = true
 	}
-	return false, nil
+
+	if !handled {
+		// Уже на проектном экране: считаем ESC обработанным, чтобы избежать лишних переключений.
+		handled = true
+	}
+
+	return handled, nil
 }

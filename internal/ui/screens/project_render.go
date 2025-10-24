@@ -35,7 +35,7 @@ func (ps *ProjectScreenReal) renderFileTreePanel() string {
 	if width <= 0 {
 		width = ps.Width()
 	}
-	height := max(ps.Height()-2, 3)
+	panelHeight := max(ps.Height()-2, 3)
 
 	borderColor := InactiveBorderColor
 	if ps.focusedPanel == FileTreePanel {
@@ -50,12 +50,22 @@ func (ps *ProjectScreenReal) renderFileTreePanel() string {
 	}
 
 	filterInfo := lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(ps.getFilterInfo())
-	treeContent := ps.renderFileTree(width)
+	status := ps.statusLine()
+	showStatus := status != "" && (ps.focusedPanel == FileTreePanel || len(ps.tabs) == 0)
+
+	contentHeight := max(panelHeight-2, 1) // account for border rows
+	headerLines := 3                       // title, filter, spacer
+	if showStatus {
+		headerLines += 2 // spacer + status line
+	}
+	treeLines := max(contentHeight-headerLines, 1)
+
+	treeContent := ps.renderFileTree(width, treeLines)
 
 	var builder []string
 	builder = append(builder, title, filterInfo, "", treeContent)
 
-	if status := ps.statusLine(); status != "" && (ps.focusedPanel == FileTreePanel || len(ps.tabs) == 0) {
+	if showStatus {
 		builder = append(builder, "", lipgloss.NewStyle().Foreground(lipgloss.Color(DimTextColor)).Render(status))
 	}
 
@@ -63,7 +73,9 @@ func (ps *ProjectScreenReal) renderFileTreePanel() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
 		Width(width).
-		Height(height).
+		MaxWidth(width).
+		Height(panelHeight).
+		MaxHeight(panelHeight).
 		Padding(0, 1)
 
 	return style.Render(strings.Join(builder, "\n"))
@@ -95,7 +107,9 @@ func (ps *ProjectScreenReal) renderWorkspaceEmpty() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
 		Width(width).
+		MaxWidth(width).
 		Height(height).
+		MaxHeight(height).
 		Padding(0, 1)
 
 	return style.Render(fmt.Sprintf("%s\n\n%s", title, content))
@@ -129,7 +143,9 @@ func (ps *ProjectScreenReal) renderWorkspaceEditor() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
 		Width(width).
+		MaxWidth(width).
 		Height(height).
+		MaxHeight(height).
 		Padding(0, 1)
 
 	return style.Render(strings.Join(parts, "\n"))
@@ -160,7 +176,7 @@ func (ps *ProjectScreenReal) renderTabBar(width int) string {
 	}
 
 	line := strings.Join(rendered, " ")
-	return lipgloss.NewStyle().Width(width).Render(line)
+	return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(line)
 }
 
 func (ps *ProjectScreenReal) renderEditorBody() string {
@@ -196,7 +212,7 @@ func (ps *ProjectScreenReal) renderEditorBody() string {
 
 	rows := make([]string, 0, max(1, end-start))
 	for idx := start; idx < end; idx++ {
-		contentStyle := lipgloss.NewStyle().Width(contentWidth)
+		contentStyle := lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth)
 		isCursorLine := idx == tab.cursor.Line
 		if isCursorLine {
 			contentStyle = contentStyle.Background(lipgloss.Color("#1F2937"))
@@ -241,14 +257,16 @@ func (ps *ProjectScreenReal) renderEditorBody() string {
 	if len(rows) == 0 {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left,
 			lineNumberStyle.Render(fmt.Sprintf("%5d ", 1)),
-			lipgloss.NewStyle().Width(contentWidth).Render(""),
+			lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth).Render(""),
 		))
 	}
 
 	body := strings.Join(rows, "\n")
 	bodyStyle := lipgloss.NewStyle().
 		Width(contentWidth + 6).
-		Height(contentHeight)
+		MaxWidth(contentWidth + 6).
+		Height(contentHeight).
+		MaxHeight(contentHeight)
 
 	return bodyStyle.Render(body)
 }
@@ -283,6 +301,7 @@ func (ps *ProjectScreenReal) renderEditorStatus() string {
 
 	return lipgloss.NewStyle().
 		Width(max(ps.mainWidth-2, 20)).
+		MaxWidth(max(ps.mainWidth-2, 20)).
 		Background(lipgloss.Color("#1E293B")).
 		Foreground(lipgloss.Color("#CBD5F5")).
 		Padding(0, 1).
@@ -292,13 +311,14 @@ func (ps *ProjectScreenReal) renderEditorStatus() string {
 func (ps *ProjectScreenReal) renderCommandLine() string {
 	return lipgloss.NewStyle().
 		Width(max(ps.mainWidth-2, 20)).
+		MaxWidth(max(ps.mainWidth-2, 20)).
 		Background(lipgloss.Color("#111827")).
 		Foreground(lipgloss.Color("#F8FAFC")).
 		Padding(0, 1).
 		Render(ps.editorCommand.View())
 }
 
-func (ps *ProjectScreenReal) renderFileTree(panelWidth int) string {
+func (ps *ProjectScreenReal) renderFileTree(panelWidth, maxLines int) string {
 	if ps.fileTree == nil || len(ps.fileTree.FlatList) == 0 {
 		return "No files found"
 	}
@@ -308,7 +328,9 @@ func (ps *ProjectScreenReal) renderFileTree(panelWidth int) string {
 	}
 
 	var lines []string
-	maxLines := max(ps.Height()-MaxDisplayLines, 1)
+	if maxLines <= 0 {
+		maxLines = 1
+	}
 
 	start := ps.fileTree.Selected
 	if maxLines > ScrollOffset && start > maxLines/ScrollOffset {
