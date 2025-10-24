@@ -70,6 +70,155 @@ func (ps *ProjectScreenReal) performDelete(path string) error {
 	return os.RemoveAll(path)
 }
 
+func (ps *ProjectScreenReal) ShowNewFileDialog() tea.Cmd {
+	if ps.newFileDialog == nil {
+		return nil
+	}
+	ch := ps.newFileDialog.Show()
+	return func() tea.Msg {
+		value := <-ch
+		return newFileConfirmedMsg{value: value}
+	}
+}
+
+func (ps *ProjectScreenReal) ShowNewDirectoryDialog() tea.Cmd {
+	if ps.newDirDialog == nil {
+		return nil
+	}
+	ch := ps.newDirDialog.Show()
+	return func() tea.Msg {
+		value := <-ch
+		return newDirConfirmedMsg{value: value}
+	}
+}
+
+func (ps *ProjectScreenReal) ShowRenameDialog() tea.Cmd {
+	if ps.renameDialog == nil {
+		return nil
+	}
+	name := ""
+	if ps.fileTree != nil {
+		if node := ps.fileTree.GetSelected(); node != nil {
+			name = node.Name
+		}
+	}
+	ch := ps.renameDialog.ShowWithValue(name)
+	return func() tea.Msg {
+		value := <-ch
+		return renameConfirmedMsg{value: value}
+	}
+}
+
+func (ps *ProjectScreenReal) RequestDeleteSelected() tea.Cmd {
+	if ps.fileTree == nil || ps.confirm == nil {
+		return nil
+	}
+	node := ps.fileTree.GetSelected()
+	if node == nil {
+		return nil
+	}
+	ps.confirm.Description = fmt.Sprintf("Delete %s?", node.Name)
+	ch := ps.confirm.Show()
+	path := node.Path
+	return func() tea.Msg {
+		confirmed := <-ch
+		return deleteConfirmedMsg{confirmed: confirmed, path: path}
+	}
+}
+
+func (ps *ProjectScreenReal) ToggleHiddenEntries() {
+	if ps.fileTree == nil {
+		return
+	}
+	ps.fileTree.SetShowHidden(!ps.fileTree.ShowHidden)
+	ps.updateStats()
+	if ps.fileTree.ShowHidden {
+		ps.setStatus("Hidden entries visible")
+	} else {
+		ps.setStatus("Hidden entries hidden")
+	}
+}
+
+func (ps *ProjectScreenReal) ToggleSurgeFilter() {
+	if ps.fileTree == nil {
+		return
+	}
+	ps.fileTree.SetFilterSurge(!ps.fileTree.FilterSurge)
+	ps.updateStats()
+	if ps.fileTree.FilterSurge {
+		ps.setStatus("Filter: .sg only")
+	} else {
+		ps.setStatus("Filter: all files")
+	}
+}
+
+func (ps *ProjectScreenReal) RefreshFileTree() tea.Cmd {
+	return ps.loadFileTree()
+}
+
+func (ps *ProjectScreenReal) FocusEditorPanel() {
+	if len(ps.tabs) == 0 {
+		return
+	}
+	ps.focusedPanel = EditorPanel
+	ps.recalculateLayout()
+}
+
+func (ps *ProjectScreenReal) FocusFileTree() {
+	ps.focusedPanel = FileTreePanel
+	ps.recalculateLayout()
+}
+
+func (ps *ProjectScreenReal) OpenSelectedEntryCmd() tea.Cmd {
+	return ps.openSelectedEntry()
+}
+
+func (ps *ProjectScreenReal) ToggleSelectedDirectory() {
+	if ps.fileTree == nil {
+		return
+	}
+	ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
+	ps.updateStats()
+}
+
+func (ps *ProjectScreenReal) ActivateNextTab() {
+	ps.activateAdjacentTab(1)
+}
+
+func (ps *ProjectScreenReal) ActivatePreviousTab() {
+	ps.activateAdjacentTab(-1)
+}
+
+func (ps *ProjectScreenReal) ReorderTabLeft() {
+	ps.reorderTabs(-1)
+}
+
+func (ps *ProjectScreenReal) ReorderTabRight() {
+	ps.reorderTabs(1)
+}
+
+func (ps *ProjectScreenReal) CloseActiveTabCmd(force bool) tea.Cmd {
+	return ps.requestCloseActiveTab(force)
+}
+
+func (ps *ProjectScreenReal) SaveActiveTabCmd() tea.Cmd {
+	ps.saveActiveTab()
+	return nil
+}
+
+func (ps *ProjectScreenReal) RunEditorCommand(command string) tea.Cmd {
+	tab := ps.activeEditorTab()
+	if tab == nil {
+		return nil
+	}
+	ps.executeEditorCommand(tab, command)
+	return nil
+}
+
+func (ps *ProjectScreenReal) HasOpenTab() bool {
+	return len(ps.tabs) > 0
+}
+
 func (ps *ProjectScreenReal) setStatus(msg string) {
 	ps.statusMsg = msg
 	ps.statusAt = time.Now()
@@ -137,42 +286,33 @@ func (ps *ProjectScreenReal) InitProjectInSelectedDir() tea.Cmd {
 }
 
 func (ps *ProjectScreenReal) HandleGlobalEsc() (bool, tea.Cmd) {
-	handled := false
-
-	if ps.handleEditorEscape() {
-		handled = true
-	}
-
 	if ps.confirm != nil && ps.confirm.Visible {
 		ps.confirm.Hide()
-		handled = true
+		return true, nil
 	}
 	if ps.closeDialog != nil && ps.closeDialog.Visible {
 		ps.closeDialog.Hide()
-		handled = true
+		return true, nil
 	}
 	if ps.newFileDialog != nil && ps.newFileDialog.Visible {
 		ps.newFileDialog.Hide()
-		handled = true
+		return true, nil
 	}
 	if ps.newDirDialog != nil && ps.newDirDialog.Visible {
 		ps.newDirDialog.Hide()
-		handled = true
+		return true, nil
 	}
 	if ps.renameDialog != nil && ps.renameDialog.Visible {
 		ps.renameDialog.Hide()
-		handled = true
-	}
-	if ps.focusedPanel != FileTreePanel {
-		ps.focusedPanel = FileTreePanel
-		ps.recalculateLayout()
-		handled = true
+		return true, nil
 	}
 
-	if !handled {
-		// Уже на проектном экране: считаем ESC обработанным, чтобы избежать лишних переключений.
-		handled = true
+	if ps.focusedPanel == EditorPanel {
+		if ps.handleEditorEscape() {
+			return true, nil
+		}
+		return true, nil
 	}
 
-	return handled, nil
+	return true, nil
 }

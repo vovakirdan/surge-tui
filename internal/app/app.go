@@ -314,6 +314,44 @@ func (a *App) registerBaseCommands() {
 		a.commands.Register(cmd)
 	}
 
+	regScreen := func(screenType ScreenType, id, title, key string, run func(*App) tea.Cmd, enabled func(*App) bool) {
+		st := screenType
+		cmd := &Command{
+			ID:      id,
+			Title:   title,
+			Key:     key,
+			Screen:  &st,
+			Enabled: enabled,
+			Run:     run,
+		}
+		a.commands.Register(cmd)
+	}
+
+	projectAvailable := func(a *App) bool {
+		ps := a.projectScreen()
+		return a.currentScreen == ProjectScreen && ps != nil
+	}
+	projectHasTab := func(a *App) bool {
+		ps := a.projectScreen()
+		return a.currentScreen == ProjectScreen && ps != nil && ps.HasOpenTab()
+	}
+	diagnosticsAvailable := func(a *App) bool {
+		ds := a.diagnosticsScreen()
+		return a.currentScreen == BuildScreen && ds != nil
+	}
+	diagnosticsHaveEntries := func(a *App) bool {
+		ds := a.diagnosticsScreen()
+		return a.currentScreen == BuildScreen && ds != nil && ds.HasEntries()
+	}
+	fixAvailable := func(a *App) bool {
+		fs := a.fixModeScreen()
+		return a.currentScreen == FixModeScreen && fs != nil
+	}
+	fixHasEntries := func(a *App) bool {
+		fs := a.fixModeScreen()
+		return a.currentScreen == FixModeScreen && fs != nil && fs.HasEntries()
+	}
+
 	reg("quit", "Quit", kb["quit"], func(a *App) tea.Cmd { return a.requestQuit() }, nil)
 	reg("open_settings", "Open Settings", kb["settings"], func(a *App) tea.Cmd { return a.router.SwitchTo(SettingsScreen) }, nil)
 	reg("open_fix_mode", "Fix Mode", kb["fix_mode"], func(a *App) tea.Cmd { return a.router.SwitchTo(FixModeScreen) }, nil)
@@ -333,6 +371,192 @@ func (a *App) registerBaseCommands() {
 		return false
 	})
 	reg("help", "Help", kb["help"], func(a *App) tea.Cmd { return a.router.SwitchTo(HelpScreen) }, nil)
+
+	// Project screen commands
+	regScreen(ProjectScreen, "project_open_selected", "Open Selected", "enter", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.OpenSelectedEntryCmd()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_toggle_directory", "Toggle Directory", "space", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ToggleSelectedDirectory()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_new_file", "New File", "n", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.ShowNewFileDialog()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_new_directory", "New Directory", "shift+n", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.ShowNewDirectoryDialog()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_rename", "Rename", "r", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.ShowRenameDialog()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_delete", "Delete", "delete", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RequestDeleteSelected()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_toggle_hidden", "Toggle Hidden Files", "h", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ToggleHiddenEntries()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_toggle_surge_filter", "Toggle .sg Filter", "s", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ToggleSurgeFilter()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_refresh", "Refresh Tree", "ctrl+r", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RefreshFileTree()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_focus_editor", "Focus Editor", "ctrl+right", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.FocusEditorPanel()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_focus_tree", "Focus Tree", "ctrl+left", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.FocusFileTree()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_open_in_editor", "Open In Editor", "alt+enter", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.OpenSelectedInEditor()
+		}
+		return nil
+	}, projectAvailable)
+	regScreen(ProjectScreen, "project_tab_next", "Next Tab", "alt+right", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ActivateNextTab()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_tab_prev", "Previous Tab", "alt+left", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ActivatePreviousTab()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_tab_reorder_left", "Reorder Tab Left", "alt+shift+left", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ReorderTabLeft()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_tab_reorder_right", "Reorder Tab Right", "alt+shift+right", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			ps.ReorderTabRight()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_tab_close", "Close Tab", "ctrl+w", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.CloseActiveTabCmd(false)
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_save", "Save File", "ctrl+s", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.SaveActiveTabCmd()
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_cmd_write", ":w", ":w", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RunEditorCommand("w")
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_cmd_quit", ":q", ":q", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RunEditorCommand("q")
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_cmd_quit_force", ":q!", ":q!", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RunEditorCommand("q!")
+		}
+		return nil
+	}, projectHasTab)
+	regScreen(ProjectScreen, "project_cmd_write_quit", ":wq", ":wq", func(a *App) tea.Cmd {
+		if ps := a.projectScreen(); ps != nil {
+			return ps.RunEditorCommand("wq")
+		}
+		return nil
+	}, projectHasTab)
+
+	// Diagnostics screen commands
+	regScreen(BuildScreen, "diagnostics_run", "Run Diagnostics", "ctrl+r", func(a *App) tea.Cmd {
+		if ds := a.diagnosticsScreen(); ds != nil {
+			return ds.TriggerDiagnostics()
+		}
+		return nil
+	}, diagnosticsAvailable)
+	regScreen(BuildScreen, "diagnostics_open", "Open In Workspace", "enter", func(a *App) tea.Cmd {
+		if ds := a.diagnosticsScreen(); ds != nil {
+			return ds.OpenSelectedCmd()
+		}
+		return nil
+	}, diagnosticsHaveEntries)
+	regScreen(BuildScreen, "diagnostics_toggle_notes", "Toggle Notes", "n", func(a *App) tea.Cmd {
+		if ds := a.diagnosticsScreen(); ds != nil {
+			return ds.ToggleNotesCmd()
+		}
+		return nil
+	}, diagnosticsAvailable)
+	regScreen(BuildScreen, "diagnostics_open_fix_mode", "Open Fix Mode", "f", func(a *App) tea.Cmd {
+		if ds := a.diagnosticsScreen(); ds != nil {
+			return ds.OpenFixModeCmd()
+		}
+		return nil
+	}, diagnosticsHaveEntries)
+
+	// Fix mode commands
+	regScreen(FixModeScreen, "fix_refresh", "Refresh Fixes", "ctrl+r", func(a *App) tea.Cmd {
+		if fs := a.fixModeScreen(); fs != nil {
+			return fs.RefreshCmd()
+		}
+		return nil
+	}, fixAvailable)
+	regScreen(FixModeScreen, "fix_apply_selected", "Apply Fix", "a", func(a *App) tea.Cmd {
+		if fs := a.fixModeScreen(); fs != nil {
+			return fs.ApplySelectedCmd()
+		}
+		return nil
+	}, fixHasEntries)
+	regScreen(FixModeScreen, "fix_apply_all", "Apply All Fixes", "shift+a", func(a *App) tea.Cmd {
+		if fs := a.fixModeScreen(); fs != nil {
+			return fs.ApplyAllCmd()
+		}
+		return nil
+	}, fixHasEntries)
+	regScreen(FixModeScreen, "fix_toggle_suggested", "Toggle Suggested Fixes", "tab", func(a *App) tea.Cmd {
+		if fs := a.fixModeScreen(); fs != nil {
+			return fs.ToggleSuggestedCmd()
+		}
+		return nil
+	}, fixAvailable)
 
 }
 
@@ -421,6 +645,21 @@ func (a *App) screenTitle(screen ScreenType) string {
 	default:
 		return "Unknown"
 	}
+}
+
+func (a *App) projectScreen() *screens.ProjectScreenReal {
+	screen, _ := a.screens[ProjectScreen].(*screens.ProjectScreenReal)
+	return screen
+}
+
+func (a *App) diagnosticsScreen() *screens.DiagnosticsScreen {
+	screen, _ := a.screens[BuildScreen].(*screens.DiagnosticsScreen)
+	return screen
+}
+
+func (a *App) fixModeScreen() *screens.FixModeScreen {
+	screen, _ := a.screens[FixModeScreen].(*screens.FixModeScreen)
+	return screen
 }
 
 func prettifyKey(key string) string {

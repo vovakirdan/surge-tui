@@ -1,7 +1,6 @@
 package screens
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -303,86 +302,41 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 		return ps, nil
 	}
 
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && !msg.Alt {
+		switch msg.Runes[0] {
+		case 'n':
+			return ps, ps.ShowNewFileDialog()
+		case 'N':
+			return ps, ps.ShowNewDirectoryDialog()
+		}
+	}
+
 	key := platform.CanonicalKeyForLookup(msg.String())
 
 	switch key {
 	case "ctrl+left":
-		ps.focusedPanel = FileTreePanel
-		ps.recalculateLayout()
+		ps.FocusFileTree()
 		return ps, nil
 	case "ctrl+right":
-		if len(ps.tabs) > 0 {
-			ps.focusedPanel = EditorPanel
-			ps.recalculateLayout()
-		}
+		ps.FocusEditorPanel()
 		return ps, nil
 	case "left", "right":
 		ps.switchPanel()
 		return ps, nil
 	case "ctrl+r":
-		return ps, ps.loadFileTree()
+		return ps, ps.RefreshFileTree()
 	case "h":
-		if ps.fileTree != nil {
-			ps.fileTree.SetShowHidden(!ps.fileTree.ShowHidden)
-			ps.updateStats()
-			if ps.fileTree.ShowHidden {
-				ps.setStatus("Hidden entries visible")
-			} else {
-				ps.setStatus("Hidden entries hidden")
-			}
-		}
+		ps.ToggleHiddenEntries()
 		return ps, nil
 	case "s":
-		if ps.fileTree != nil {
-			ps.fileTree.SetFilterSurge(!ps.fileTree.FilterSurge)
-			ps.updateStats()
-			if ps.fileTree.FilterSurge {
-				ps.setStatus("Filter: .sg only")
-			} else {
-				ps.setStatus("Filter: all files")
-			}
-		}
-		return ps, nil
-	case "n":
-		if ps.newFileDialog != nil {
-			ch := ps.newFileDialog.Show()
-			return ps, func() tea.Msg {
-				value := <-ch
-				return newFileConfirmedMsg{value: value}
-			}
-		}
-		return ps, nil
-	case "N":
-		if ps.newDirDialog != nil {
-			ch := ps.newDirDialog.Show()
-			return ps, func() tea.Msg {
-				value := <-ch
-				return newDirConfirmedMsg{value: value}
-			}
-		}
+		ps.ToggleSurgeFilter()
 		return ps, nil
 	case "r":
-		if node := ps.fileTree.GetSelected(); node != nil && ps.renameDialog != nil {
-			ch := ps.renameDialog.ShowWithValue(node.Name)
-			return ps, func() tea.Msg {
-				value := <-ch
-				return renameConfirmedMsg{value: value}
-			}
-		}
-		return ps, nil
+		return ps, ps.ShowRenameDialog()
 	case "delete", "ctrl+d":
-		if node := ps.fileTree.GetSelected(); node != nil && ps.confirm != nil {
-			ps.confirm.Description = fmt.Sprintf("Delete %s?", node.Name)
-			ch := ps.confirm.Show()
-			path := node.Path
-			return ps, func() tea.Msg {
-				confirmed := <-ch
-				return deleteConfirmedMsg{confirmed: confirmed, path: path}
-			}
-		}
-		return ps, nil
+		return ps, ps.RequestDeleteSelected()
 	case "alt+enter":
-		return ps, ps.openSelectedInEditor()
+		return ps, ps.OpenSelectedInEditor()
 	}
 
 	// Навигация в дереве файлов
@@ -395,11 +349,10 @@ func (ps *ProjectScreenReal) handleKeyPress(msg tea.KeyMsg) (Screen, tea.Cmd) {
 			ps.fileTree.SetSelected(ps.fileTree.Selected + 1)
 			return ps, nil
 		case "space":
-			ps.fileTree.ToggleExpanded(ps.fileTree.Selected)
-			ps.updateStats()
+			ps.ToggleSelectedDirectory()
 			return ps, nil
 		case "enter":
-			return ps, ps.openSelectedEntry()
+			return ps, ps.OpenSelectedEntryCmd()
 		}
 	}
 
@@ -506,7 +459,7 @@ func (ps *ProjectScreenReal) openSelectedEntry() tea.Cmd {
 	return nil
 }
 
-func (ps *ProjectScreenReal) openSelectedInEditor() tea.Cmd {
+func (ps *ProjectScreenReal) OpenSelectedInEditor() tea.Cmd {
 	selected := ps.fileTree.GetSelected()
 	if selected == nil || selected.IsDir {
 		return nil

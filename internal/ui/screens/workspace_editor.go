@@ -27,6 +27,7 @@ type editorTab struct {
 	name      string
 	lines     []string
 	cursor    cursorPosition
+	hscroll   int
 	scroll    int
 	mode      editorMode
 	pending   string
@@ -66,6 +67,7 @@ func newEditorTab(path string) (*editorTab, error) {
 		name:              filepath.Base(abs),
 		lines:             lines,
 		cursor:            cursorPosition{Line: 0, Col: 0},
+		hscroll:           0,
 		mode:              editorModeNormal,
 		pending:           "",
 		dirty:             created,
@@ -122,6 +124,12 @@ func (t *editorTab) clampCursor() {
 		t.cursor.Col = 0
 	} else if t.cursor.Col > maxCol {
 		t.cursor.Col = maxCol
+	}
+	if t.hscroll < 0 {
+		t.hscroll = 0
+	}
+	if t.hscroll > maxCol {
+		t.hscroll = maxCol
 	}
 }
 

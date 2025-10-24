@@ -194,15 +194,15 @@ func (ps *ProjectScreenReal) renderEditorBody() string {
 	lineNumberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
 	cursorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#7C3AED"))
 
-	highlight := ps.config != nil && ps.config.Editor.SyntaxHighlight
 	themeName := "dark"
 	if ps.config != nil && strings.TrimSpace(ps.config.Theme) != "" {
 		themeName = ps.config.Theme
 	}
-	var theme syntax.HighlightTheme
+	theme := syntax.NewHighlightTheme(themeName)
+
+	highlight := ps.config != nil && ps.config.Editor.SyntaxHighlight
 	if highlight {
 		tab.ensureHighlight(true)
-		theme = syntax.NewHighlightTheme(themeName)
 	} else {
 		tab.ensureHighlight(false)
 	}
@@ -220,44 +220,47 @@ func (ps *ProjectScreenReal) renderEditorBody() string {
 
 		number := lineNumberStyle.Render(fmt.Sprintf("%5d ", idx+1))
 
-		var display string
+		var sourceLine syntax.Line
 		if highlight && tab.highlightLines != nil && idx < len(tab.highlightLines) {
-			opts := syntax.RenderOptions{}
-			if isCursorLine {
-				opts.CursorCol = tab.cursor.Col
+			sourceLine = tab.highlightLines[idx]
+		} else {
+			text := ""
+			if idx < len(tab.lines) {
+				text = tab.lines[idx]
+			}
+			sourceLine = syntax.PlainLine(text)
+		}
+
+		windowed := syntax.WindowLine(sourceLine, tab.hscroll, contentWidth)
+
+		opts := syntax.RenderOptions{
+			MaxWidth:   contentWidth,
+			PadToWidth: contentWidth,
+			CursorCol:  -1,
+		}
+		if isCursorLine {
+			cursorCol := tab.cursor.Col - tab.hscroll
+			if cursorCol >= 0 && cursorCol <= contentWidth {
+				opts.CursorCol = cursorCol
 				opts.CursorStyle = &cursorStyle
 			}
-			rendered, _ := syntax.Render(tab.highlightLines[idx], theme, opts)
-			display = rendered
-		} else {
-			line := ""
-			if idx < len(tab.lines) {
-				line = tab.lines[idx]
-			}
-			runes := []rune(line)
-			col := min(tab.cursor.Col, len(runes))
-			if isCursorLine {
-				before := string(runes[:col])
-				cursorRune := " "
-				after := ""
-				if col < len(runes) {
-					cursorRune = string(runes[col])
-					after = string(runes[col+1:])
-				}
-				display = before + cursorStyle.Render(cursorRune) + after
-			} else {
-				display = line
-			}
 		}
+
+		display, _ := syntax.Render(windowed, theme, opts)
 
 		row := lipgloss.JoinHorizontal(lipgloss.Left, number, contentStyle.Render(display))
 		rows = append(rows, row)
 	}
 
 	if len(rows) == 0 {
+		emptyLine := syntax.WindowLine(syntax.PlainLine(""), 0, contentWidth)
+		emptyRendered, _ := syntax.Render(emptyLine, theme, syntax.RenderOptions{
+			MaxWidth:   contentWidth,
+			PadToWidth: contentWidth,
+		})
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left,
 			lineNumberStyle.Render(fmt.Sprintf("%5d ", 1)),
-			lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth).Render(""),
+			lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth).Render(emptyRendered),
 		))
 	}
 

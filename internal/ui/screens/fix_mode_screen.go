@@ -408,6 +408,45 @@ func (fs *FixModeScreen) applyAll() tea.Cmd {
 	}
 }
 
+// HasEntries reports whether there are fixes to interact with.
+func (fs *FixModeScreen) HasEntries() bool {
+	return len(fs.entries) > 0
+}
+
+// RefreshCmd triggers a reload of available fixes.
+func (fs *FixModeScreen) RefreshCmd() tea.Cmd {
+	return fs.loadFixes()
+}
+
+// ApplySelectedCmd applies the currently selected fix.
+func (fs *FixModeScreen) ApplySelectedCmd() tea.Cmd {
+	return fs.applySelected()
+}
+
+// ApplyAllCmd starts confirmation flow for applying all fixes (falls back to direct apply when no dialog).
+func (fs *FixModeScreen) ApplyAllCmd() tea.Cmd {
+	if fs.confirm != nil {
+		fs.confirm.Description = "Apply all available fixes in project?"
+		ch := fs.confirm.Show()
+		return func() tea.Msg {
+			confirmed := <-ch
+			return fixApplyAllMsg{confirmed: confirmed}
+		}
+	}
+	return fs.applyAll()
+}
+
+// ToggleSuggestedCmd toggles inclusion of suggested fixes and refreshes the list.
+func (fs *FixModeScreen) ToggleSuggestedCmd() tea.Cmd {
+	fs.includeSuggested = !fs.includeSuggested
+	if fs.includeSuggested {
+		fs.setStatus("Showing suggested fixes")
+	} else {
+		fs.setStatus("Only safe fixes")
+	}
+	return fs.loadFixes()
+}
+
 func (fs *FixModeScreen) FocusFix(filePath, fixID string) {
 	if filePath == "" && fixID == "" {
 		return
@@ -516,10 +555,10 @@ func (fs *FixModeScreen) ensureSelectionVisible() {
 	if fs.scroll < 0 {
 		fs.scroll = 0
 	}
-	maxScroll := max(len(fs.entries) - visible, 0)
+	maxScroll := max(len(fs.entries)-visible, 0)
 	if fs.scroll > maxScroll {
 		fs.scroll = maxScroll
-	}	
+	}
 }
 
 func (fs *FixModeScreen) setStatus(msg string) {

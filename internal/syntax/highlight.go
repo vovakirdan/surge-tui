@@ -64,6 +64,129 @@ func HighlightDocument(lines []string) []Line {
 	return result
 }
 
+// PlainLine creates a Line consisting entirely of plain text.
+func PlainLine(text string) Line {
+	var line Line
+	line.append(TokenPlain, text)
+	return line
+}
+
+// WindowLine returns a slice of the provided line starting at the given column
+// and constrained to the specified visual width. Ellipses are inserted when
+// content is truncated on either side.
+func WindowLine(line Line, start, width int) Line {
+	var out Line
+	if width <= 0 {
+		return out
+	}
+
+	total := line.Length()
+	if total == 0 {
+		return out
+	}
+
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+
+	remaining := width
+
+	leftIndicator := start > 0 && remaining > 0
+	if leftIndicator {
+		out.append(TokenPlain, "…")
+		remaining--
+	}
+
+	contentWidth := remaining
+	if contentWidth < 0 {
+		contentWidth = 0
+	}
+
+	rightIndicator := start+contentWidth < total
+	reservedRight := false
+	if rightIndicator && remaining > 0 {
+		reservedRight = true
+		remaining--
+		if contentWidth > 0 {
+			contentWidth--
+		}
+	}
+
+	skip := start
+	copyLeft := contentWidth
+
+	for _, seg := range line.Segments {
+		if copyLeft <= 0 {
+			break
+		}
+		runes := []rune(seg.Text)
+		segLen := len(runes)
+		if segLen == 0 {
+			continue
+		}
+		idx := 0
+		if skip > 0 {
+			if skip >= segLen {
+				skip -= segLen
+				continue
+			}
+			idx = skip
+			skip = 0
+		}
+		if idx >= segLen {
+			continue
+		}
+		take := segLen - idx
+		if take > copyLeft {
+			take = copyLeft
+		}
+		if take > 0 {
+			out.append(seg.Kind, string(runes[idx:idx+take]))
+			copyLeft -= take
+		}
+	}
+
+	if rightIndicator {
+		if reservedRight {
+			out.append(TokenPlain, "…")
+		} else if removeLastRune(&out) {
+			out.append(TokenPlain, "…")
+		} else if !leftIndicator {
+			out.append(TokenPlain, "…")
+		} else {
+			out.append(TokenPlain, "…")
+		}
+	}
+
+	return out
+}
+
+func removeLastRune(line *Line) bool {
+	if line == nil {
+		return false
+	}
+	for len(line.Segments) > 0 {
+		idx := len(line.Segments) - 1
+		seg := &line.Segments[idx]
+		runes := []rune(seg.Text)
+		if len(runes) == 0 {
+			line.Segments = line.Segments[:idx]
+			continue
+		}
+		runes = runes[:len(runes)-1]
+		seg.Text = string(runes)
+		line.length--
+		if len(runes) == 0 {
+			line.Segments = line.Segments[:idx]
+		}
+		return true
+	}
+	return false
+}
+
 type lexState struct {
 	blockDepth int
 	inString   bool

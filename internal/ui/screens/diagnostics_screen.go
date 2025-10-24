@@ -514,6 +514,42 @@ func (ds *DiagnosticsScreen) TriggerDiagnostics() tea.Cmd {
 	return ds.runDiagnostics()
 }
 
+// HasEntries reports whether diagnostics are available.
+func (ds *DiagnosticsScreen) HasEntries() bool {
+	return len(ds.diagnostics) > 0
+}
+
+// OpenSelectedCmd opens the selected diagnostic in the project workspace.
+func (ds *DiagnosticsScreen) OpenSelectedCmd() tea.Cmd {
+	return ds.openSelectedLocation()
+}
+
+// ToggleNotesCmd toggles visibility of diagnostic notes.
+func (ds *DiagnosticsScreen) ToggleNotesCmd() tea.Cmd {
+	ds.includeNotes = !ds.includeNotes
+	ds.status = fmt.Sprintf("Notes %s", ternary(ds.includeNotes, "enabled", "hidden"))
+	return nil
+}
+
+// OpenFixModeCmd navigates to fix mode for the selected diagnostic when fixes are available.
+func (ds *DiagnosticsScreen) OpenFixModeCmd() tea.Cmd {
+	if len(ds.diagnostics) == 0 {
+		return nil
+	}
+	entry := ds.diagnostics[ds.selected]
+	if !entry.HasFixes {
+		return nil
+	}
+	fixID := ""
+	if len(entry.FixIDs) > 0 {
+		fixID = entry.FixIDs[0]
+	}
+	absPath := entry.AbsPath
+	return func() tea.Msg {
+		return OpenFixModeMsg{FilePath: absPath, FixID: fixID}
+	}
+}
+
 func clampInt(value, min, max int) int {
 	if value < min {
 		return min

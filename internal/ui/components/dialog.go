@@ -225,10 +225,10 @@ func (d *InputDialog) Update(msg tea.Msg) tea.Cmd {
 		case "shift+tab":
 			d.selected = (d.selected + 1) % 2
 			return nil
-		case "left", "h":
+		case "left":
 			d.selected = 0 // Cancel
 			return nil
-		case "right", "l":
+		case "right":
 			d.selected = 1 // Confirm
 			return nil
 		case "escape":

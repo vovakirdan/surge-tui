@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"surge-tui/internal/platform"
@@ -209,6 +210,37 @@ func (ps *ProjectScreenReal) ensureCursorVisible(tab *editorTab) {
 	if tab.scroll < 0 {
 		tab.scroll = 0
 	}
+
+	width := ps.editorContentWidth()
+	if width < 1 {
+		width = 1
+	}
+
+	currentLine := ""
+	if tab.cursor.Line >= 0 && tab.cursor.Line < len(tab.lines) {
+		currentLine = tab.lines[tab.cursor.Line]
+	}
+	lineLength := utf8.RuneCountInString(currentLine)
+
+	if tab.hscroll < 0 {
+		tab.hscroll = 0
+	}
+
+	if tab.cursor.Col < tab.hscroll {
+		tab.hscroll = tab.cursor.Col
+	}
+
+	if tab.cursor.Col >= tab.hscroll+width {
+		tab.hscroll = tab.cursor.Col - width + 1
+	}
+
+	maxHScroll := lineLength - width
+	if maxHScroll < 0 {
+		maxHScroll = 0
+	}
+	if tab.hscroll > maxHScroll {
+		tab.hscroll = maxHScroll
+	}
 }
 
 func (ps *ProjectScreenReal) handleEditorEscape() bool {
@@ -226,11 +258,13 @@ func (ps *ProjectScreenReal) handleEditorEscape() bool {
 		tab.clearPending()
 		ps.editorCommand.Blur()
 		ps.setStatus("-- NORMAL --")
+		ps.ensureCursorVisible(tab)
 		return true
 	case editorModeCommand:
 		tab.mode = editorModeNormal
 		ps.editorCommand.Blur()
 		ps.setStatus("-- NORMAL --")
+		ps.ensureCursorVisible(tab)
 		return true
 	default:
 		if tab.pending != "" {
